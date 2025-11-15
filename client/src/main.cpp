@@ -9,6 +9,8 @@
 
 #include "minidrive/version.hpp"
 
+#include <signal.h>
+
 struct HostPort {
     std::string host;
     uint16_t port{};
@@ -34,7 +36,12 @@ void print_help() {
     std::cout << "EXIT - Exit the client\n";
 }
 
-void main_loop() {
+enum class Mode {
+    Local,
+    Remote
+};
+
+void main_loop(const int fd, Mode mode) {
     std::string input_buffer;
     char temp[256];
 
@@ -65,7 +72,26 @@ void main_loop() {
                 std::cout << "Exiting...\n";
                 return;
             } else {
-                std::cout << "Unknown command: " << cmd << std::endl;
+                // not a local command -> send to server if in remote mode
+                if (mode == Mode::Remote) {
+                    // check connection
+                    char tmp;
+                    ssize_t r = recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT);
+                    if (r == 0) {
+                        std::cout << "Connection closed by server. Exitting...\n";
+                        return;
+                    }
+
+                    cmd.append("\n"); // append newline
+                    ssize_t sent = ::send(fd, cmd.c_str(), cmd.size(), 0);
+                    if (sent < 0) {
+                        std::perror("send");
+                    } else {
+                        std::cout << "Sent command to server (" << sent << " bytes)" << std::endl;
+                    }
+                } else {
+                    std::cout << "Unknown command: " << cmd << std::endl;
+                }
             }
             
             std::cout << "> " << std::flush;
@@ -74,27 +100,29 @@ void main_loop() {
 }
 
 int main(int argc, char* argv[]) {
+    ::signal(SIGPIPE, SIG_IGN);
+    
     // Echo full command line once for diagnostics
     std::cout << "[cmd]";
     for (int i = 0; i < argc; ++i) {
         std::cout << " \"" << argv[i] << '"';
     }
     std::cout << std::endl;
-
+    
     if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <host>:<port>" << std::endl;
         return 1;
     }
-
+    
     HostPort hp;
     if (!parse_host_port(argv[1], hp)) {
         std::cerr << "Invalid endpoint format: " << argv[1] << std::endl;
         return 1;
     }
-
+    
     std::cout << "MiniDrive client (version " << minidrive::version() << ")" << std::endl;
     std::cout << "Connecting to " << hp.host << ':' << hp.port << std::endl;
-
+    
     int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         std::perror("socket");
@@ -111,7 +139,7 @@ int main(int argc, char* argv[]) {
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         std::perror("connect");
         ::close(fd);
-        main_loop();
+        main_loop(fd, Mode::Local);
         return 2;
     }
     const char* msg = "Hello from client";
@@ -123,7 +151,7 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "Sent greeting (" << sent << " bytes)" << std::endl;
 
-    main_loop();
+    main_loop(fd, Mode::Remote);
 
     ::close(fd);
     return 0;

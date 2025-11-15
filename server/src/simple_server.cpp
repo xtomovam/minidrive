@@ -90,7 +90,15 @@ void start_simple_server(std::uint16_t port) {
                 std::cout << "Client disconnected" << std::endl;
                 break;
             }
+            
             message.append(buffer, static_cast<std::size_t>(n));
+            // if newline in message, print and clear
+            std::size_t pos;
+            while ((pos = message.find('\n')) != std::string::npos) {
+                std::string line = message.substr(0, pos);
+                message.erase(0, pos + 1);
+                std::cout << "Received line (" << line.size() << " bytes): " << line << std::endl;
+            }
         }
         ::close(client_fd);
     }
