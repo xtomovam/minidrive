@@ -78,7 +78,7 @@ void main_loop(const int fd, Mode mode) {
                     char tmp;
                     ssize_t r = recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT);
                     if (r == 0) {
-                        std::cout << "Connection closed by server. Exitting...\n";
+                        std::cout << "ERROR closed_connection : connection closed by server. Exitting...\n";
                         return;
                     }
 
@@ -88,6 +88,28 @@ void main_loop(const int fd, Mode mode) {
                         std::perror("send");
                     } else {
                         std::cout << "Sent command to server (" << sent << " bytes)" << std::endl;
+                        // wait for response
+                        std::string response;
+                        while (true) {
+                            ssize_t recvd = ::recv(fd, temp, sizeof(temp) - 1, 0);
+                            if (recvd < 0) {
+                                if (errno == EINTR) continue;
+                                std::perror("ERROR recv : failed to receive response from server");
+                                break;
+                            }
+                            if (recvd == 0) {
+                                std::perror("ERROR closed_connection : connection closed by server");
+                                return;
+                            }
+                            response.append(temp, static_cast<size_t>(recvd));
+
+                            size_t pos = response.find('\n');
+                            if (pos != std::string::npos) {
+                                break;
+                            }
+
+                        }
+                        std::cout << "OK\n" << response << std::flush;
                     }
                 } else {
                     std::cout << "Unknown command: " << cmd << std::endl;
@@ -142,14 +164,6 @@ int main(int argc, char* argv[]) {
         main_loop(fd, Mode::Local);
         return 2;
     }
-    const char* msg = "Hello from client";
-    ssize_t sent = ::send(fd, msg, std::strlen(msg), 0);
-    if (sent < 0) {
-        std::perror("send");
-        ::close(fd);
-        return 3;
-    }
-    std::cout << "Sent greeting (" << sent << " bytes)" << std::endl;
 
     main_loop(fd, Mode::Remote);
 
