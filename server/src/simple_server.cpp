@@ -1,4 +1,5 @@
 #include "simple_server.hpp"
+#include "../../shared/include/minidrive/helpers.hpp"
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -11,6 +12,7 @@
 
 #include <filesystem>
 #include <sstream>
+#include <fstream>
 
 namespace {
 
@@ -74,7 +76,7 @@ std::string list(const std::string &cmd) {
         return std::string("ERROR: ") + e.what() + "\n";
     }
 
-    return out.str();
+    return std::string("OK ") + out.str();
 }
 
 std::string cd(const std::string &cmd) {
@@ -93,16 +95,83 @@ std::string cd(const std::string &cmd) {
         return std::string("ERROR: ") + e.what() + "\n";
     }
 
-    return "Changed directory to " + path + "\n";
+    return "OK Changed directory to " + path + "\n";
 }
 
-const std::string process_command(const std::string &cmd) {
+const std::string upload(const int &client_fd, const std::string &cmd) {
+    // parse command
+    if (cmd.size() <= 7) {
+        return "ERROR no_path: UPLOAD command requires a path argument\n";
+    }
+    std::istringstream iss(cmd.substr(7));
+    std::string client_path;
+    std::string server_path;
+    if (!(iss >> client_path)) {
+        return "ERROR no_path: UPLOAD command requires a client path argument\n";
+    }
+    if (!(iss >> server_path)) {
+        server_path = client_path[client_path.find_last_of("/\\") + 1];
+    }
+
+    // send request for file size
+    std::string request = "FILESIZE " + client_path + "\n";
+    ssize_t sent = ::send(client_fd, request.c_str(), request.size(), 0);
+    if (sent < 0) {
+        return "ERROR send_failed: failed to send FILESIZE request\n";
+    }
+
+    // receive file size
+    uint64_t file_size;
+    std::string response = receive(client_fd);
+    file_size = std::stoull(response);
+
+
+    // send request for file data
+    request = "FILEDATA " + client_path + " " + std::to_string(file_size) + "\n";
+    sent = ::send(client_fd, request.c_str(), request.size(), 0);
+    if (sent < 0) {
+        return "ERROR send_failed: failed to send FILEDATA request\n";
+    }
+
+    // receive and save file data
+    std::ofstream outfile(server_path, std::ios::binary);
+    if (!outfile) {
+        return "ERROR file_open_failed: failed to open file for writing on server\n";
+    }
+    uint64_t remaining = file_size;
+    char temp[256];
+    while (remaining > 0) {
+        ssize_t recvd = ::recv(client_fd, temp, (remaining < sizeof(temp)) ? static_cast<size_t>(remaining) : sizeof(temp), 0);
+        if (recvd < 0) {
+            if (errno == EINTR) continue;
+            return "ERROR recv_failed: failed to receive file data\n";
+        }
+        if (recvd == 0) {
+            return "ERROR connection_closed: connection closed by client\n";
+        }
+        outfile.write(temp, static_cast<std::streamsize>(recvd));
+        if (!outfile) {
+            return "ERROR file_write_failed: failed to write to file on server\n";
+        }
+        remaining -= static_cast<uint64_t>(recvd);
+    }
+
+    return "OK uploaded " + client_path + " to " + server_path + "\n";
+}
+
+const std::string process_command(const int client_fd, const std::string &cmd) {
     if (cmd.starts_with("LIST")) {
         return list(cmd);
     } else if (cmd.starts_with("CD")) {
         return cd(cmd);
+    } else if (cmd.starts_with("UPLOAD")) {
+        try {
+            return upload(client_fd,cmd);
+        } catch (const std::exception &e) {
+            return std::string("ERROR: ") + e.what() + "\n";
+        }
     }
-    return "\n";
+    return "OK \n";
 }
 
 void start_simple_server(std::uint16_t port) {
@@ -111,7 +180,7 @@ void start_simple_server(std::uint16_t port) {
         std::filesystem::current_path("server/root");
     } catch (const std::exception &e) {
         std::cerr << "Failed to set server root directory: " << e.what() << std::endl;
-        //return;
+        return;
     }
 
     int listen_fd = create_listen_socket(port);
@@ -149,10 +218,6 @@ void start_simple_server(std::uint16_t port) {
                 break;
             }
             if (n == 0) { // EOF
-                std::cout << "Full message from client (" << message.size() << " bytes):\n";
-                if (!message.empty()) {
-                    std::cout << message << std::endl;
-                }
                 std::cout << "Client disconnected" << std::endl;
                 break;
             }
@@ -165,7 +230,7 @@ void start_simple_server(std::uint16_t port) {
                 std::string line = message.substr(0, pos);
                 message.erase(0, pos + 1);
                 std::cout << "Received line (" << line.size() << " bytes): " << line << std::endl;
-                std::string response = process_command(line);
+                std::string response = process_command(client_fd, line);
 
                 ssize_t sent = ::send(client_fd, response.c_str(), response.size(), 0);
                 if (sent < 0) {

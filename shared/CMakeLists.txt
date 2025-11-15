@@ -1,4 +1,5 @@
 add_library(minidrive_shared STATIC
+    src/helpers.cpp
     src/version.cpp
 )
 

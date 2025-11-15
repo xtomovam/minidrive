@@ -1,3 +1,6 @@
+#include "minidrive/version.hpp"
+#include "minidrive/helpers.hpp"
+
 #include <iostream>
 #include <string>
 #include <cstring>
@@ -7,9 +10,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include "minidrive/version.hpp"
-
 #include <signal.h>
+#include <sstream>
+#include <fstream>
+#include <filesystem>
 
 struct HostPort {
     std::string host;
@@ -41,10 +45,72 @@ enum class Mode {
     Remote
 };
 
-void main_loop(const int fd, Mode mode) {
+bool process_response(const int &fd, const std::string &response) {
+    // hadnle OK and ERROR responses
+    if (response.starts_with("OK")) {
+        std::cout << "OK\n" << response.substr(3) << std::flush;
+        return true;
+    } else if (response.starts_with("ERROR")) {
+        std::cout << response << std::flush;
+        return true;
+    }
+
+    // handle requests
+    if (response.starts_with("FILESIZE ")) { // server asks for the size of a file to be uploaded
+        // send file size
+        std::string filepath = response.substr(9, response.length() - 10); // remove trailing newline
+        uint64_t size = 0;
+        try {
+            size = std::filesystem::file_size(filepath);
+        } catch (const std::exception &e) {
+            std::cout << "ERROR file_not_found : cannot access file '" << filepath << "': " << e.what() << "\n";
+            return true;
+        }
+        ssize_t sent = ::send(fd, (std::to_string(size) + "\n").c_str(), std::to_string(size).size() + 1, 0);
+        if (sent < 0) {
+            std::cout << "ERROR send : failed to send file size\n";
+        }
+        std::cout << "Sent file size: " << size << " bytes\n";
+        return false;
+    }
+
+    if (response.starts_with("FILEDATA ")) { // server asks for the data of a file to be uploaded
+        // send file data
+        std::istringstream iss(response.substr(9));
+        std::string filepath;
+        uint64_t size;
+        iss >> filepath >> size;
+        std::ifstream file = std::ifstream(filepath, std::ios::binary);
+        if (!file) {
+            std::cout << "ERROR file_not_found : cannot open file '" << filepath << "'\n";
+            return true;
+        }
+        std::cout << "Server requests file data of file: " << filepath << " (" << size << " bytes)\n";
+        char temp[256];
+        uint64_t remaining = size;
+        while (remaining > 0) {
+            uint64_t to_read = (remaining < sizeof(temp)) ? static_cast<size_t>(remaining) : sizeof(temp);
+            file.read(temp, static_cast<std::streamsize>(to_read));
+            if (!file) {
+                std::cout << "ERROR read_error : failed to read from file '" << filepath << "'\n";
+                return true;
+            }
+            ssize_t sent = ::send(fd, temp, to_read, 0);
+            if (sent < 0) {
+                std::cout << "ERROR send_error : failed to send file data\n";
+                return true;
+            }
+            remaining -= static_cast<uint64_t>(sent);
+        }
+        return false;
+    }
+
+    return false; // incomplete response
+}
+
+void main_loop(const int &fd, const Mode &mode) {
     std::string input_buffer;
     char temp[256];
-
     std::cout << "> " << std::flush;
 
     while (true) {
@@ -86,11 +152,15 @@ void main_loop(const int fd, Mode mode) {
                     ssize_t sent = ::send(fd, cmd.c_str(), cmd.size(), 0);
                     if (sent < 0) {
                         std::perror("send");
-                    } else {
-                        std::cout << "Sent command to server (" << sent << " bytes)" << std::endl;
-                        // wait for response
-                        std::string response;
-                        while (true) {
+                        continue;
+                    }
+                    std::cout << "Sent command to server (" << sent << " bytes)" << std::endl;
+
+                    // wait for response
+                    std::string response;
+                    while (true) {
+                        size_t pos = response.find('\n');
+                        while (pos == std::string::npos) {
                             ssize_t recvd = ::recv(fd, temp, sizeof(temp) - 1, 0);
                             if (recvd < 0) {
                                 if (errno == EINTR) continue;
@@ -103,16 +173,12 @@ void main_loop(const int fd, Mode mode) {
                             }
                             response.append(temp, static_cast<size_t>(recvd));
 
-                            size_t pos = response.find('\n');
-                            if (pos != std::string::npos) {
-                                break;
-                            }
-
+                            pos = response.find('\n');
                         }
-                        if (response.starts_with("ERROR")) {
-                            std::cout << response << std::flush;
+                        if (process_response(fd, response)) {
+                            break;
                         } else {
-                        std::cout << "OK\n" << response << std::flush;
+                            response.erase(0, pos + 1);
                         }
                     }
                 } else {
@@ -127,6 +193,14 @@ void main_loop(const int fd, Mode mode) {
 
 int main(int argc, char* argv[]) {
     ::signal(SIGPIPE, SIG_IGN);
+    // set client root directory
+    try {
+        std::filesystem::current_path("client/root");
+    } catch (const std::exception &e) {
+        std::cerr << "Failed to set client root directory: " << e.what() << std::endl;
+        return 1;
+    }
+
     
     // Echo full command line once for diagnostics
     std::cout << "[cmd]";
