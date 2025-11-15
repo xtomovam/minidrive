@@ -109,7 +109,11 @@ void main_loop(const int fd, Mode mode) {
                             }
 
                         }
+                        if (response.starts_with("ERROR")) {
+                            std::cout << response << std::flush;
+                        } else {
                         std::cout << "OK\n" << response << std::flush;
+                        }
                     }
                 } else {
                     std::cout << "Unknown command: " << cmd << std::endl;

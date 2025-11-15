@@ -9,6 +9,9 @@
 #include <cstring>
 #include <iostream>
 
+#include <filesystem>
+#include <sstream>
+
 namespace {
 
 int create_listen_socket(std::uint16_t port) {
@@ -47,7 +50,70 @@ int create_listen_socket(std::uint16_t port) {
 
 }
 
+std::string list(const std::string &cmd) {
+    namespace fs = std::filesystem;
+
+    std::string path = ".";
+    if (cmd.size() > 5) {
+        path = cmd.substr(5);
+    }
+
+    std::ostringstream out;
+
+    try {
+        for (const auto &entry : fs::directory_iterator(path)) {
+            if (fs::is_directory(entry.status())) {
+                out << "[DIR]  ";
+            } else {
+                out << "       ";
+            }
+
+            out << entry.path().filename().string() << "\n";
+        }
+    } catch (const std::exception &e) {
+        return std::string("ERROR: ") + e.what() + "\n";
+    }
+
+    return out.str();
+}
+
+std::string cd(const std::string &cmd) {
+    namespace fs = std::filesystem;
+
+    std::string path = ".";
+    if (cmd.size() > 3) {
+        path = cmd.substr(3);
+    } else {
+        return "ERROR no_path: CD command requires a path argument\n";
+    }
+
+    try {
+        fs::current_path(path);
+    } catch (const std::exception &e) {
+        return std::string("ERROR: ") + e.what() + "\n";
+    }
+
+    return "Changed directory to " + path + "\n";
+}
+
+const std::string process_command(const std::string &cmd) {
+    if (cmd.starts_with("LIST")) {
+        return list(cmd);
+    } else if (cmd.starts_with("CD")) {
+        return cd(cmd);
+    }
+    return "\n";
+}
+
 void start_simple_server(std::uint16_t port) {
+    // set server root directory
+    try {
+        std::filesystem::current_path("server/root");
+    } catch (const std::exception &e) {
+        std::cerr << "Failed to set server root directory: " << e.what() << std::endl;
+        //return;
+    }
+
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
         std::cerr << "Failed to set up listen socket on port " << port << std::endl;
@@ -99,7 +165,8 @@ void start_simple_server(std::uint16_t port) {
                 std::string line = message.substr(0, pos);
                 message.erase(0, pos + 1);
                 std::cout << "Received line (" << line.size() << " bytes): " << line << std::endl;
-                std::string response = "Echo: " + line + "\n";
+                std::string response = process_command(line);
+
                 ssize_t sent = ::send(client_fd, response.c_str(), response.size(), 0);
                 if (sent < 0) {
                     std::perror("send");
