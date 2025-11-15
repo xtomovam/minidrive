@@ -28,6 +28,51 @@ static bool parse_host_port(const std::string& input, HostPort& out) {
     return true;
 }
 
+void print_help() {
+    std::cout << "Available commands:\n";
+    std::cout << "HELP - Show this help message\n";
+    std::cout << "EXIT - Exit the client\n";
+}
+
+void main_loop() {
+    std::string input_buffer;
+    char temp[256];
+
+    std::cout << "> " << std::flush;
+
+    while (true) {
+        // read up to 256 bytes from stdin
+        ssize_t read_bytes = ::read(STDIN_FILENO, temp, sizeof(temp));
+        if (read_bytes < 0) {
+            perror("read");
+            break;
+        }
+        if (read_bytes == 0) {
+            std::cout << "stdin closed\n";
+            break;
+        }
+        input_buffer.append(temp, static_cast<size_t>(read_bytes));
+
+        // process complete lines
+        size_t pos;
+        while ((pos = input_buffer.find('\n')) != std::string::npos) {
+            std::string cmd = input_buffer.substr(0, pos);
+            input_buffer.erase(0, pos + 1);
+
+            if (cmd == "HELP") {
+                print_help();
+            } else if (cmd == "EXIT") {
+                std::cout << "Exiting...\n";
+                return;
+            } else {
+                std::cout << "Unknown command: " << cmd << std::endl;
+            }
+            
+            std::cout << "> " << std::flush;
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     // Echo full command line once for diagnostics
     std::cout << "[cmd]";
@@ -66,6 +111,7 @@ int main(int argc, char* argv[]) {
     if (::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         std::perror("connect");
         ::close(fd);
+        main_loop();
         return 2;
     }
     const char* msg = "Hello from client";
@@ -76,6 +122,9 @@ int main(int argc, char* argv[]) {
         return 3;
     }
     std::cout << "Sent greeting (" << sent << " bytes)" << std::endl;
+
+    main_loop();
+
     ::close(fd);
     return 0;
 }
