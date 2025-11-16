@@ -70,7 +70,10 @@ std::string list(const std::string &cmd) {
             out << "       ";
         }
 
-        out << entry.path().filename().string() << "\n";
+        if (n > 0) {
+            out << "\n";
+        }
+        out << entry.path().filename().string();
         n++;
     }
 
@@ -88,6 +91,7 @@ std::string cd(const std::string &cmd) {
     }
     std::string path = cmd.substr(3);
     std::cout << "Changing directory to: " << path << std::endl;
+
     fs::current_path(path);
 
     return "Changed directory to " + path;
@@ -135,6 +139,26 @@ std::string download(const int &client_fd, const std::string &cmd) {
     return "Downloaded " + server_path + " to " + client_path;
 }
 
+std::string delete_file(const std::string &cmd) {
+    // parse command
+    namespace fs = std::filesystem;
+    if (cmd.size() <= 7) {
+        throw std::runtime_error("no_path: DELETE command requires a path argument");
+    }
+    std::string path = cmd.substr(7);
+
+    // delete file
+    if (!fs::exists(path)) {
+        throw std::runtime_error("file_not_found: File does not exist");
+    }
+    if (fs::is_directory(path)) {
+        throw std::runtime_error("is_directory: Path is a directory");
+    }
+    fs::remove(path);
+
+    return "Deleted file " + path;
+}
+
 const std::string process_command(const int client_fd, const std::string &cmd) {
     try {
         if (cmd.starts_with("LIST")) {
@@ -148,6 +172,9 @@ const std::string process_command(const int client_fd, const std::string &cmd) {
         }
         if (cmd.starts_with("DOWNLOAD")) {
             return "OK " + download(client_fd, cmd);
+        }
+        if (cmd.starts_with("DELETE")) {
+            return "OK " + delete_file(cmd);
         }
         return "ERROR unknown_command: Unknown command: " + cmd;
     } catch (const std::exception &e) {

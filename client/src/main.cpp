@@ -42,6 +42,7 @@ void print_help() {
     std::cout << "CD <path> - Change the current directory to the specified path\n";
     std::cout << "UPLOAD <local_path> [remote_path] - Upload a file from the client to the server\n";
     std::cout << "DOWNLOAD <remote_path> [local_path] - Download a file from the server to the client\n";
+    std::cout << "DELETE <path> - Delete a file on the server\n";
 }
 
 enum class Mode {
