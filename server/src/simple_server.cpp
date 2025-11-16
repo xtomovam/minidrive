@@ -57,119 +57,88 @@ std::string list(const std::string &cmd) {
 
     std::string path = ".";
     if (cmd.size() > 5) {
-        path = cmd.substr(5);
+        std::istringstream iss(cmd.substr(5));
+        iss >> path;
     }
 
     std::ostringstream out;
-
-    try {
-        for (const auto &entry : fs::directory_iterator(path)) {
-            if (fs::is_directory(entry.status())) {
-                out << "[DIR]  ";
-            } else {
-                out << "       ";
-            }
-
-            out << entry.path().filename().string() << "\n";
+    size_t n = 0;
+    for (const auto &entry : fs::directory_iterator(path)) {
+        if (fs::is_directory(entry.status())) {
+            out << "[DIR]  ";
+        } else {
+            out << "       ";
         }
-    } catch (const std::exception &e) {
-        return std::string("ERROR: ") + e.what() + "\n";
+
+        out << entry.path().filename().string() << "\n";
+        n++;
     }
 
-    return std::string("OK ") + out.str();
+    if (n == 0) {
+        out << "\n";
+    }
+
+    return out.str();
 }
 
 std::string cd(const std::string &cmd) {
     namespace fs = std::filesystem;
-
-    std::string path = ".";
-    if (cmd.size() > 3) {
-        path = cmd.substr(3);
-    } else {
-        return "ERROR no_path: CD command requires a path argument\n";
+    if (cmd.size() <= 3) {
+        throw std::runtime_error("no_path: CD command requires a path argument");
     }
+    std::string path = cmd.substr(3);
+    std::cout << "Changing directory to: " << path << std::endl;
+    fs::current_path(path);
 
-    try {
-        fs::current_path(path);
-    } catch (const std::exception &e) {
-        return std::string("ERROR: ") + e.what() + "\n";
-    }
-
-    return "OK Changed directory to " + path + "\n";
+    return "Changed directory to " + path;
 }
 
 const std::string upload(const int &client_fd, const std::string &cmd) {
     // parse command
-    if (cmd.size() <= 7) {
-        return "ERROR no_path: UPLOAD command requires a path argument\n";
-    }
-    std::istringstream iss(cmd.substr(7));
     std::string client_path;
     std::string server_path;
+    if (cmd.size() <= 7) {
+        throw std::runtime_error("no_path: UPLOAD command requires a path argument");
+    }
+    std::istringstream iss(cmd.substr(7));
     if (!(iss >> client_path)) {
-        return "ERROR no_path: UPLOAD command requires a client path argument\n";
+        throw std::runtime_error("no_path: UPLOAD command requires a client path argument");
     }
     if (!(iss >> server_path)) {
-        server_path = client_path[client_path.find_last_of("/\\") + 1];
+        server_path = client_path.substr(client_path.find_last_of("/\\") + 1);
     }
 
     // send request for file size
-    std::string request = "FILESIZE " + client_path + "\n";
-    ssize_t sent = ::send(client_fd, request.c_str(), request.size(), 0);
-    if (sent < 0) {
-        return "ERROR send_failed: failed to send FILESIZE request\n";
-    }
+    send_msg(client_fd, "FILESIZE " + client_path);
 
     // receive file size
     uint64_t file_size;
-    std::string response = receive(client_fd);
+    std::string response = recv_msg(client_fd);
     file_size = std::stoull(response);
 
-
     // send request for file data
-    request = "FILEDATA " + client_path + " " + std::to_string(file_size) + "\n";
-    sent = ::send(client_fd, request.c_str(), request.size(), 0);
-    if (sent < 0) {
-        return "ERROR send_failed: failed to send FILEDATA request\n";
-    }
+    send_msg(client_fd, "FILEDATA " + client_path);
 
     // receive and save file data
-    std::ofstream outfile(server_path, std::ios::binary);
-    if (!outfile) {
-        return "ERROR file_open_failed: failed to open file for writing on server\n";
-    }
-    uint64_t remaining = file_size;
-    char temp[256];
-    while (remaining > 0) {
-        ssize_t recvd = ::recv(client_fd, temp, (remaining < sizeof(temp)) ? static_cast<size_t>(remaining) : sizeof(temp), 0);
-        if (recvd < 0) {
-            if (errno == EINTR) continue;
-            return "ERROR recv_failed: failed to receive file data\n";
-        }
-        if (recvd == 0) {
-            return "ERROR connection_closed: connection closed by client\n";
-        }
-        outfile.write(temp, static_cast<std::streamsize>(recvd));
-        if (!outfile) {
-            return "ERROR file_write_failed: failed to write to file on server\n";
-        }
-        remaining -= static_cast<uint64_t>(recvd);
-    }
+    recv_file(client_fd, server_path, file_size);
 
-    return "OK uploaded " + client_path + " to " + server_path + "\n";
+    return "Uploaded " + client_path + " to " + server_path;
 }
 
 const std::string process_command(const int client_fd, const std::string &cmd) {
-    if (cmd.starts_with("LIST")) {
-        return list(cmd);
-    } else if (cmd.starts_with("CD")) {
-        return cd(cmd);
-    } else if (cmd.starts_with("UPLOAD")) {
-        try {
-            return upload(client_fd,cmd);
-        } catch (const std::exception &e) {
-            return std::string("ERROR: ") + e.what() + "\n";
+    try {
+        if (cmd.starts_with("LIST")) {
+            return "OK " + list(cmd);
+        } 
+        if (cmd.starts_with("CD")) {
+            return "OK " + cd(cmd);
+        } 
+        if (cmd.starts_with("UPLOAD")) {
+            return "OK " + upload(client_fd, cmd);
         }
+        return "ERROR unknown_command: Unknown command: " + cmd;
+    } catch (const std::exception &e) {
+        return std::string("ERROR ") + e.what();
     }
     return "OK \n";
 }
@@ -207,37 +176,12 @@ void start_simple_server(std::uint16_t port) {
             std::cout << "Client connected from " << ipstr << ":" << ntohs(client_addr.sin_port) << std::endl;
         }
 
-        constexpr std::size_t BUF_SIZE = 4096;
-        char buffer[BUF_SIZE];
-        std::string message;
         while (true) {
-            ssize_t n = ::recv(client_fd, buffer, BUF_SIZE, 0);
-            if (n < 0) {
-                if (errno == EINTR) continue;
-                std::perror("recv");
-                break;
-            }
-            if (n == 0) { // EOF
-                std::cout << "Client disconnected" << std::endl;
-                break;
-            }
+            std::string message = recv_msg(client_fd);
+            std::cout << "Received line (" << message.size() << " bytes): " << message << std::endl;
+            std::string response = process_command(client_fd, message);
 
-            message.append(buffer, static_cast<std::size_t>(n));
-
-            // if newline in message, send response for each line
-            std::size_t pos;
-            while ((pos = message.find('\n')) != std::string::npos) {
-                std::string line = message.substr(0, pos);
-                message.erase(0, pos + 1);
-                std::cout << "Received line (" << line.size() << " bytes): " << line << std::endl;
-                std::string response = process_command(client_fd, line);
-
-                ssize_t sent = ::send(client_fd, response.c_str(), response.size(), 0);
-                if (sent < 0) {
-                    std::perror("send");
-                    break;
-                }
-            }
+            send_msg(client_fd, response);
         }
         ::close(client_fd);
     }

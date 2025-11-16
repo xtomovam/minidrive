@@ -38,6 +38,9 @@ void print_help() {
     std::cout << "Available commands:\n";
     std::cout << "HELP - Show this help message\n";
     std::cout << "EXIT - Exit the client\n";
+    std::cout << "LIST [path] - List files in the specified directory (default: current directory)\n";
+    std::cout << "CD <path> - Change the current directory to the specified path\n";
+    std::cout << "UPLOAD <client_path> [server_path] - Upload a file from the client to the server\n";
 }
 
 enum class Mode {
@@ -55,10 +58,10 @@ bool process_response(const int &fd, const std::string &response) {
         return true;
     }
 
-    // handle requests
+    // handle FILESIZE request
     if (response.starts_with("FILESIZE ")) { // server asks for the size of a file to be uploaded
         // send file size
-        std::string filepath = response.substr(9, response.length() - 10); // remove trailing newline
+        std::string filepath = response.substr(9);
         uint64_t size = 0;
         try {
             size = std::filesystem::file_size(filepath);
@@ -66,42 +69,17 @@ bool process_response(const int &fd, const std::string &response) {
             std::cout << "ERROR file_not_found : cannot access file '" << filepath << "': " << e.what() << "\n";
             return true;
         }
-        ssize_t sent = ::send(fd, (std::to_string(size) + "\n").c_str(), std::to_string(size).size() + 1, 0);
-        if (sent < 0) {
-            std::cout << "ERROR send : failed to send file size\n";
-        }
-        std::cout << "Sent file size: " << size << " bytes\n";
+        send_msg(fd, std::to_string(size) + "\n");
         return false;
     }
 
+    // handle FILEDATA request
     if (response.starts_with("FILEDATA ")) { // server asks for the data of a file to be uploaded
         // send file data
         std::istringstream iss(response.substr(9));
         std::string filepath;
-        uint64_t size;
-        iss >> filepath >> size;
-        std::ifstream file = std::ifstream(filepath, std::ios::binary);
-        if (!file) {
-            std::cout << "ERROR file_not_found : cannot open file '" << filepath << "'\n";
-            return true;
-        }
-        std::cout << "Server requests file data of file: " << filepath << " (" << size << " bytes)\n";
-        char temp[256];
-        uint64_t remaining = size;
-        while (remaining > 0) {
-            uint64_t to_read = (remaining < sizeof(temp)) ? static_cast<size_t>(remaining) : sizeof(temp);
-            file.read(temp, static_cast<std::streamsize>(to_read));
-            if (!file) {
-                std::cout << "ERROR read_error : failed to read from file '" << filepath << "'\n";
-                return true;
-            }
-            ssize_t sent = ::send(fd, temp, to_read, 0);
-            if (sent < 0) {
-                std::cout << "ERROR send_error : failed to send file data\n";
-                return true;
-            }
-            remaining -= static_cast<uint64_t>(sent);
-        }
+        iss >> filepath;
+        send_file(fd, filepath);
         return false;
     }
 
@@ -110,19 +88,17 @@ bool process_response(const int &fd, const std::string &response) {
 
 void main_loop(const int &fd, const Mode &mode) {
     std::string input_buffer;
-    char temp[256];
+    char temp[TMP_BUFF_SIZE];
     std::cout << "> " << std::flush;
 
     while (true) {
-        // read up to 256 bytes from stdin
+        // read up to TMP_BUFF_SIZE bytes from stdin
         ssize_t read_bytes = ::read(STDIN_FILENO, temp, sizeof(temp));
         if (read_bytes < 0) {
-            perror("read");
-            break;
+            throw std::runtime_error("read_stdin_failed: Failed to read from stdin");
         }
         if (read_bytes == 0) {
-            std::cout << "stdin closed\n";
-            break;
+            throw std::runtime_error("stdin_closed: Stdin closed");
         }
         input_buffer.append(temp, static_cast<size_t>(read_bytes));
 
@@ -144,38 +120,24 @@ void main_loop(const int &fd, const Mode &mode) {
                     char tmp;
                     ssize_t r = recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT);
                     if (r == 0) {
-                        std::cout << "ERROR closed_connection : connection closed by server. Exitting...\n";
-                        return;
+                        throw std::runtime_error("closed_connection: Connection closed by server");
                     }
-
-                    cmd.append("\n"); // append newline
-                    ssize_t sent = ::send(fd, cmd.c_str(), cmd.size(), 0);
-                    if (sent < 0) {
-                        std::perror("send");
-                        continue;
-                    }
-                    std::cout << "Sent command to server (" << sent << " bytes)" << std::endl;
+                    send_msg(fd, cmd);
+                    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 
                     // wait for response
                     std::string response;
                     while (true) {
-                        size_t pos = response.find('\n');
-                        while (pos == std::string::npos) {
-                            ssize_t recvd = ::recv(fd, temp, sizeof(temp) - 1, 0);
-                            if (recvd < 0) {
-                                if (errno == EINTR) continue;
-                                std::perror("ERROR recv : failed to receive response from server");
-                                break;
-                            }
-                            if (recvd == 0) {
-                                std::perror("ERROR closed_connection : connection closed by server");
-                                return;
-                            }
-                            response.append(temp, static_cast<size_t>(recvd));
+                        response = recv_msg(fd);
 
-                            pos = response.find('\n');
+                        bool done = true;
+                        try {
+                            done = process_response(fd, response);
+                        } catch (const std::exception &e) {
+                            std::cout << "ERROR " << e.what();
+                            break;
                         }
-                        if (process_response(fd, response)) {
+                        if (done) {
                             break;
                         } else {
                             response.erase(0, pos + 1);
@@ -186,7 +148,7 @@ void main_loop(const int &fd, const Mode &mode) {
                 }
             }
             
-            std::cout << "> " << std::flush;
+            std::cout << "\n> " << std::flush;
         }
     }
 }
