@@ -64,15 +64,16 @@ std::string list(const std::string &cmd) {
     std::ostringstream out;
     size_t n = 0;
     for (const auto &entry : fs::directory_iterator(path)) {
+        if (n > 0) {
+            out << "\n";
+        }
+        
         if (fs::is_directory(entry.status())) {
             out << "[DIR]  ";
         } else {
             out << "       ";
         }
 
-        if (n > 0) {
-            out << "\n";
-        }
         out << entry.path().filename().string();
         n++;
     }
