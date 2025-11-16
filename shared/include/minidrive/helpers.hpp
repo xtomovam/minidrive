@@ -2,6 +2,7 @@
 #include <sys/socket.h>
 #include <stdexcept>
 #include <fstream>
+#include <filesystem>
 
 std::string recv_msg(const int &fd);
 void send_msg(const int &fd, const std::string &msg);

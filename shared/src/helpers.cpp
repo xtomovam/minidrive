@@ -59,10 +59,18 @@ void send_msg(const int &fd, const std::string &msg) {
 }
 
 void recv_file(const int &fd, const std::string &filepath) {
+    namespace fs = std::filesystem;
+    std::string err = "";
+    std::ofstream outfile;
+
     // open file for writing
-    std::ofstream outfile(filepath, std::ios::binary);
-    if (!outfile) {
-        throw std::runtime_error("file_open_failed: Failed to open file for writing");
+    if (fs::exists(filepath) && fs::is_regular_file(filepath)) {
+        err = "overwrite_error: File already exists"; // prevent overwriting existing files
+    } else {
+        outfile.open(filepath, std::ios::binary);
+        if (!outfile) {
+            err = "file_open_failed: Failed to open file for writing";
+        }
     }
 
     // receive file length
@@ -88,10 +96,12 @@ void recv_file(const int &fd, const std::string &filepath) {
     size_t remaining = file_size;
     size_t len_str_size = len_str.size();
     if (len_str_size > 0) {
-        outfile.write(len_str.c_str(), static_cast<std::streamsize>(len_str_size));
-        if (!outfile) {
-            throw std::runtime_error("file_write_failed: Failed to write to file");
-        }
+        if (err.empty()) {
+            outfile.write(len_str.c_str(), static_cast<std::streamsize>(len_str_size));
+            if (!outfile) {
+                throw std::runtime_error("file_write_failed: Failed to write to file");
+            }
+    }
         remaining -= len_str_size;
     }
 
@@ -105,11 +115,17 @@ void recv_file(const int &fd, const std::string &filepath) {
         if (recvd == 0) {
             throw std::runtime_error("connection_closed: Connection closed by remote node");
         }
-        outfile.write(temp, static_cast<std::streamsize>(recvd));
-        if (!outfile) {
-            throw std::runtime_error("file_write_failed: Failed to write to file");
+        if (err.empty()) {
+            outfile.write(temp, static_cast<std::streamsize>(recvd));
+            if (!outfile) {
+                throw std::runtime_error("file_write_failed: Failed to write to file");
+            }
         }
         remaining -= static_cast<size_t>(recvd);
+    }
+
+    if (!err.empty()) {
+        throw std::runtime_error(err);
     }
 }
 
