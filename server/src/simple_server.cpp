@@ -108,19 +108,8 @@ const std::string upload(const int &client_fd, const std::string &cmd) {
         server_path = client_path.substr(client_path.find_last_of("/\\") + 1);
     }
 
-    // send request for file size
-    send_msg(client_fd, "FILESIZE " + client_path);
-
-    // receive file size
-    uint64_t file_size;
-    std::string response = recv_msg(client_fd);
-    file_size = std::stoull(response);
-
-    // send request for file data
-    send_msg(client_fd, "FILEDATA " + client_path);
-
     // receive and save file data
-    recv_file(client_fd, server_path, file_size);
+    recv_file(client_fd, server_path);
 
     return "Uploaded " + client_path + " to " + server_path;
 }

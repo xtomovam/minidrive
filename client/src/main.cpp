@@ -48,6 +48,16 @@ enum class Mode {
     Remote
 };
 
+void send_cmd(const int &fd, const std::string &cmd) {
+    send_msg(fd, cmd);
+    if (cmd.starts_with("UPLOAD ")) {
+        std::istringstream iss(cmd.substr(7));
+        std::string filepath;
+        iss >> filepath;
+        send_file(fd, filepath);
+    }
+}
+
 bool process_response(const int &fd, const std::string &response) {
     // hadnle OK and ERROR responses
     if (response.starts_with("OK")) {
@@ -56,31 +66,6 @@ bool process_response(const int &fd, const std::string &response) {
     } else if (response.starts_with("ERROR")) {
         std::cout << response << std::flush;
         return true;
-    }
-
-    // handle FILESIZE request
-    if (response.starts_with("FILESIZE ")) { // server asks for the size of a file to be uploaded
-        // send file size
-        std::string filepath = response.substr(9);
-        uint64_t size = 0;
-        try {
-            size = std::filesystem::file_size(filepath);
-        } catch (const std::exception &e) {
-            std::cout << "ERROR file_not_found : cannot access file '" << filepath << "': " << e.what() << "\n";
-            return true;
-        }
-        send_msg(fd, std::to_string(size) + "\n");
-        return false;
-    }
-
-    // handle FILEDATA request
-    if (response.starts_with("FILEDATA ")) { // server asks for the data of a file to be uploaded
-        // send file data
-        std::istringstream iss(response.substr(9));
-        std::string filepath;
-        iss >> filepath;
-        send_file(fd, filepath);
-        return false;
     }
 
     return false; // incomplete response
@@ -116,33 +101,13 @@ void main_loop(const int &fd, const Mode &mode) {
             } else {
                 // not a local command -> send to server if in remote mode
                 if (mode == Mode::Remote) {
-                    // check connection
-                    char tmp;
-                    ssize_t r = recv(fd, &tmp, 1, MSG_PEEK | MSG_DONTWAIT);
-                    if (r == 0) {
-                        throw std::runtime_error("closed_connection: Connection closed by server");
-                    }
-                    send_msg(fd, cmd);
+                    // send command
+                    send_cmd(fd, cmd);
                     std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 
                     // wait for response
-                    std::string response;
-                    while (true) {
-                        response = recv_msg(fd);
-
-                        bool done = true;
-                        try {
-                            done = process_response(fd, response);
-                        } catch (const std::exception &e) {
-                            std::cout << "ERROR " << e.what();
-                            break;
-                        }
-                        if (done) {
-                            break;
-                        } else {
-                            response.erase(0, pos + 1);
-                        }
-                    }
+                    std::string response = recv_msg(fd);
+                    process_response(fd, response);
                 } else {
                     std::cout << "Unknown command: " << cmd << std::endl;
                 }
