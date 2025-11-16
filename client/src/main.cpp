@@ -40,7 +40,8 @@ void print_help() {
     std::cout << "EXIT - Exit the client\n";
     std::cout << "LIST [path] - List files in the specified directory (default: current directory)\n";
     std::cout << "CD <path> - Change the current directory to the specified path\n";
-    std::cout << "UPLOAD <client_path> [server_path] - Upload a file from the client to the server\n";
+    std::cout << "UPLOAD <local_path> [remote_path] - Upload a file from the client to the server\n";
+    std::cout << "DOWNLOAD <remote_path> [local_path] - Download a file from the server to the client\n";
 }
 
 enum class Mode {
@@ -48,27 +49,32 @@ enum class Mode {
     Remote
 };
 
+void process_response(const std::string &response) {
+    // hadnle OK and ERROR responses
+    if (response.starts_with("OK")) {
+        std::cout << "OK\n" << response.substr(3) << std::flush;
+    } else if (response.starts_with("ERROR")) {
+        std::cout << response << std::flush;
+    }
+}
+
 void send_cmd(const int &fd, const std::string &cmd) {
     send_msg(fd, cmd);
+    std::string response;
+
+    // send command
     if (cmd.starts_with("UPLOAD ")) {
         std::istringstream iss(cmd.substr(7));
         std::string filepath;
         iss >> filepath;
         send_file(fd, filepath);
+    } else if (cmd.starts_with("DOWNLOAD ")) {
+        std::istringstream iss(cmd.substr(9));
+        std::string filepath;
+        iss >> filepath;
+        recv_file(fd, filepath);
     }
-}
-
-bool process_response(const int &fd, const std::string &response) {
-    // hadnle OK and ERROR responses
-    if (response.starts_with("OK")) {
-        std::cout << "OK\n" << response.substr(3) << std::flush;
-        return true;
-    } else if (response.starts_with("ERROR")) {
-        std::cout << response << std::flush;
-        return true;
-    }
-
-    return false; // incomplete response
+    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 }
 
 void main_loop(const int &fd, const Mode &mode) {
@@ -103,11 +109,10 @@ void main_loop(const int &fd, const Mode &mode) {
                 if (mode == Mode::Remote) {
                     // send command
                     send_cmd(fd, cmd);
-                    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 
                     // wait for response
                     std::string response = recv_msg(fd);
-                    process_response(fd, response);
+                    process_response(response);
                 } else {
                     std::cout << "Unknown command: " << cmd << std::endl;
                 }

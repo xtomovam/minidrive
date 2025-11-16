@@ -102,7 +102,7 @@ const std::string upload(const int &client_fd, const std::string &cmd) {
     }
     std::istringstream iss(cmd.substr(7));
     if (!(iss >> client_path)) {
-        throw std::runtime_error("no_path: UPLOAD command requires a client path argument");
+        throw std::runtime_error("no_path: UPLOAD command requires a path argument");
     }
     if (!(iss >> server_path)) {
         server_path = client_path.substr(client_path.find_last_of("/\\") + 1);
@@ -112,6 +112,27 @@ const std::string upload(const int &client_fd, const std::string &cmd) {
     recv_file(client_fd, server_path);
 
     return "Uploaded " + client_path + " to " + server_path;
+}
+
+std::string download(const int &client_fd, const std::string &cmd) {
+    // parse command
+    std::string server_path;
+    std::string client_path;
+    if (cmd.size() <= 9) {
+        throw std::runtime_error("no_path: DOWNLOAD command requires a path argument");
+    }
+    std::istringstream iss(cmd.substr(9));
+    if (!(iss >> server_path)) {
+        throw std::runtime_error("no_path: DOWNLOAD command requires a path argument");
+    }
+    if (!(iss >> client_path)) {
+        client_path = server_path.substr(server_path.find_last_of("/\\") + 1);
+    }
+
+    // send file data
+    send_file(client_fd, server_path);
+
+    return "Downloaded " + server_path + " to " + client_path;
 }
 
 const std::string process_command(const int client_fd, const std::string &cmd) {
@@ -124,6 +145,9 @@ const std::string process_command(const int client_fd, const std::string &cmd) {
         } 
         if (cmd.starts_with("UPLOAD")) {
             return "OK " + upload(client_fd, cmd);
+        }
+        if (cmd.starts_with("DOWNLOAD")) {
+            return "OK " + download(client_fd, cmd);
         }
         return "ERROR unknown_command: Unknown command: " + cmd;
     } catch (const std::exception &e) {
