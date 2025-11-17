@@ -12,7 +12,6 @@ Session::~Session() = default;
 
 // main message handler
 void Session::onMessage(const std::string &msg) {
-
     // expecting a file -> delegate to flow
     if (this->state == State::AwaitingFile) {
         if (this->current_flow) {
@@ -44,7 +43,11 @@ void Session::onMessage(const std::string &msg) {
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
-            this->current_flow = std::make_unique<AuthenticateFlow>(this, word_from(msg, 5));
+            if (word_from(msg, 5).empty()) {
+                this->send("[warning] operating in public mode - files are visible to everyone");
+            } else {
+                this->current_flow = std::make_unique<AuthenticateFlow>(this, word_from(msg, 5));
+            }
         } else if (is_cmd(msg, "UPLOAD")) {
             this->current_flow = std::make_unique<UploadFlow>(this, word_from(msg, 7), (msg.find(' ', 7) != std::string::npos ? word_from(msg, msg.find(' ', 7) + 1) : ""));
         } else if (is_cmd(msg, "DOWNLOAD")) {
@@ -53,7 +56,7 @@ void Session::onMessage(const std::string &msg) {
             throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
     } catch (const std::exception &e) {
-        send_msg(this->client_fd, std::string("ERROR ") + e.what());
+        this->send(std::string("ERROR ") + e.what());
         if (this->current_flow) {
             this->leaveFlow();
         }
@@ -128,7 +131,7 @@ void Session::setWorkingDirectory(const std::string &path) {
     }
     
 
-    this->working_directory = path;
+    this->working_directory = abs_path.string();
 }
 
 void Session::setClientUsername(const std::string &username) {
@@ -169,7 +172,7 @@ void Session::list(const std::string path) {
         out << "\n";
     }
 
-    send_msg(this->client_fd, "OK " + out.str());
+    this->send("OK " + out.str());
 }
 
 void Session::downloadFile(const std::string &path) {
@@ -192,7 +195,7 @@ void Session::deleteFile(const std::string &path) {
     }
     fs::remove(full_path);
 
-    send_msg(this->client_fd, "OK Deleted file " + path);
+    this->send("OK Deleted file " + path);
 }
 
 void Session::changeDirectory(const std::string &path) {
@@ -206,7 +209,7 @@ void Session::changeDirectory(const std::string &path) {
 
     this->setWorkingDirectory(full_path);
 
-    send_msg(this->client_fd, "OK Changed directory to " + path);
+    this->send("OK Changed directory to " + path);
 }
 
 void Session::makeDirectory(const std::string &path) {
@@ -222,5 +225,5 @@ void Session::makeDirectory(const std::string &path) {
 
     fs::create_directories(full_path);
 
-    send_msg(this->client_fd, "OK Created directory " + path);
+    this->send("OK Created directory " + path);
 }

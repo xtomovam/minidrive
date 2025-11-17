@@ -18,7 +18,7 @@ void UploadFlow::onMessage(const std::string& msg) {
     (void)msg;
     
     try {
-        recv_file(this->session->getClientFD(), full_remote_path);
+        recv_file(this->session->getClientFD(), this->full_remote_path);
     } catch (const std::exception &e) {
         if (std::string(e.what()).starts_with("overwrite_error") || std::string(e.what()).starts_with("file_open_failed") || std::string(e.what()).starts_with("file_write_failed")) {
             this->session->send(std::string("ERROR ") + e.what());

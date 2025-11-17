@@ -9,7 +9,7 @@ const std::string word_from(const std::string &str, const size_t &start) {
     if (start >= str.size()) {
         return "";
     }
-    
+
     std::string word;
     size_t pos = str.find(' ', start);
     if (pos == std::string::npos) {
@@ -166,7 +166,7 @@ void send_file(const int &fd, const std::string &filepath) {
     // open file
     std::ifstream infile(filepath, std::ios::binary);
     if (!infile) {
-        throw std::runtime_error("file_open_failed: Failed to open file for reading");
+        throw std::runtime_error("file_open_failed: Failed to open file for reading (path: " + filepath + ")");
     }
 
     // send file size
