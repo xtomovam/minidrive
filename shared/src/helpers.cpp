@@ -59,6 +59,7 @@ void send_msg(const int &fd, const std::string &msg) {
 }
 
 void recv_file(const int &fd, const std::string &filepath) {
+    std::cout << "Receiving file to " << filepath << " ..." << std::endl;
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;
@@ -67,9 +68,22 @@ void recv_file(const int &fd, const std::string &filepath) {
     if (fs::exists(filepath) && fs::is_regular_file(filepath)) {
         err = "overwrite_error: File already exists"; // prevent overwriting existing files
     } else {
-        outfile.open(filepath, std::ios::binary);
-        if (!outfile) {
-            err = "file_open_failed: Failed to open file for writing";
+        // ensure parent directory exists
+        fs::path file_path(filepath);
+        fs::path parent_dir = file_path.parent_path();
+        if (!parent_dir.empty() && !fs::exists(parent_dir)) {
+            try {
+                fs::create_directories(parent_dir);
+            } catch (const std::exception& e) {
+                err = "directory_create_failed: Failed to create parent directory: " + std::string(e.what());
+            }
+        }
+        
+        if (err.empty()) {
+            outfile.open(filepath, std::ios::binary);
+            if (!outfile) {
+                err = "file_open_failed: Failed to open file for writing (path: " + filepath + ")";
+            }
         }
     }
 

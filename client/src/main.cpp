@@ -64,11 +64,11 @@ void send_cmd(const int &fd, const std::string &cmd) {
     std::string response;
 
     // send command
-    if (cmd.starts_with("UPLOAD ")) {
-        std::istringstream iss(cmd.substr(7));
-        std::string filepath;
-        iss >> filepath;
-        send_file(fd, filepath);
+    if (cmd.starts_with("UPLOAD ")) { // upload -> send file
+        if (cmd.size() <= 7) {
+            throw std::runtime_error("no_path: UPLOAD command requires a path argument");
+        }
+        send_file(fd, cmd.substr(7, cmd.find(' ', 7) - 7));
     } else if (cmd.starts_with("DOWNLOAD ")) {
         std::istringstream iss(cmd.substr(9));
         std::string filepath;

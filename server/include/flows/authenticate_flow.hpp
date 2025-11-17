@@ -10,6 +10,8 @@ public:
     void onMessage(const std::string& msg) override;
     
 private:
+    void success();
+
     enum class State {
         AwaitingRegistrationChoice,
         AwaitingRegistrationPassword,

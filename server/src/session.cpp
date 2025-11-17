@@ -8,6 +8,15 @@ Session::Session(const int &fd) : client_fd(fd) {}
 Session::~Session() = default; // Implementation here where Flow is complete
 
 void Session::onMessage(const std::string &msg) {
+    if (this->state == State::AwaitingFile) {
+        if (this->current_flow) {
+            this->current_flow->onMessage(msg);
+            return;
+        } else {
+            throw std::runtime_error("no_flow: No active flow to receive file");
+        }
+    }
+
     if (this->current_flow) {
         this->current_flow->onMessage(msg);
         return;
@@ -26,9 +35,10 @@ void Session::onMessage(const std::string &msg) {
         } else if (msg.starts_with("AUTH ")) {
             this->current_flow = std::make_unique<AuthenticateFlow>(this, msg.size() > 5 ? msg.substr(5) : "");
         } else if (msg.starts_with("UPLOAD ")) {
-            // create and enter upload flow
-            // this->current_flow = std::make_unique<UploadFlow>(this, msg);
-            throw std::runtime_error("not_implemented: UPLOAD flow not implemented yet");
+            this->current_flow = std::make_unique<UploadFlow>(
+                this, 
+                msg.size() > 7 ? msg.substr(7, msg.find(' ', 7) - 7) : "", 
+                msg.find(' ', 7) != std::string::npos ? msg.substr(msg.find(' ', 7) + 1) : "");
         } else if (msg.starts_with("DOWNLOAD ")) {
             // create and enter download flow
             // this->current_flow = std::make_unique<DownloadFlow>(this, msg);
@@ -49,21 +59,53 @@ void Session::send(const std::string &msg) const {
     send_msg(this->client_fd, msg);
 }
 
+void Session::setState(const State &new_state) {
+    this->state = new_state;
+}
+
 void Session::enterFlow(Flow* flow) {
     this->current_flow.reset(flow);
 }
 
 void Session::leaveFlow() {
     this->current_flow.reset();
+    this->state = State::AwaitingMessage;
+}
+
+// getters and setters
+
+Session::State Session::getState() const {
+    return this->state;
 }
 
 const std::string &Session::getClientUsername() const {
     return this->client_username;
 }
 
+const int &Session::getClientFD() const {
+    return this->client_fd;
+}
+
+const std::string &Session::getWorkingDirectory() const {
+    return this->working_directory;
+}
+
+const std::string &Session::getClientDirectory() const {
+    return this->client_directory;
+}
+
 void Session::setClientDirectory(const std::string &path) {
     this->client_directory = path;
 }
+
+void Session::setWorkingDirectory(const std::string &path) {
+    this->working_directory = path;
+}
+
+void Session::setClientUsername(const std::string &username) {
+    this->client_username = username;
+}
+
 
 void Session::list(const std::string path) {
     namespace fs = std::filesystem;

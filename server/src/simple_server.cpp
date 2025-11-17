@@ -206,6 +206,18 @@ void start_simple_server(std::uint16_t port) {
             int fd = p.first;
             if (FD_ISSET(fd, &readfds)) {
                 std::string msg;
+
+                // session waits for file -> delegate to flow
+                if (sessions[fd]->getState() == Session::State::AwaitingFile) {
+                    try {
+                        sessions[fd]->onMessage("");
+                    } catch (const std::exception &e) {
+                        std::cerr << "Error processing file for client " << fd << ": " << e.what() << "\n";
+                        toClose.push_back(fd);
+                    }
+                    continue;
+                }
+
                 try {
                     msg = recv_msg(fd);
                 } catch (const std::exception &e) {
