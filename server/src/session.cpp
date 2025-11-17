@@ -24,26 +24,22 @@ void Session::onMessage(const std::string &msg) {
 
     try {
         // simple commands
-        if (msg.starts_with("LIST")) {
-            this->list(msg.size() > 5 ? msg.substr(5) : "");
-        } else if (msg.starts_with("CD ")) {
-            this->changeDirectory(msg.size() > 3 ? msg.substr(3) : "");
-        } else if (msg.starts_with("DELETE ")) {
-            this->deleteFile(msg.size() > 7 ? msg.substr(7) : "");
+        if (is_cmd(msg, "LIST")) {
+            this->list(word_from(msg, 5));
+        } else if (is_cmd(msg, "CD")) {
+            this->changeDirectory(word_from(msg, 3));
+        } else if (is_cmd(msg, "DOWNLOAD")) {
+            this->downloadFile(word_from(msg, 9));
+        } else if (is_cmd(msg, "DELETE")) {
+            this->deleteFile(word_from(msg, 7));
 
         // commands requiring flows
-        } else if (msg.starts_with("AUTH ")) {
-            this->current_flow = std::make_unique<AuthenticateFlow>(this, msg.size() > 5 ? msg.substr(5) : "");
-        } else if (msg.starts_with("UPLOAD ")) {
-            this->current_flow = std::make_unique<UploadFlow>(
-                this, 
-                msg.size() > 7 ? msg.substr(7, msg.find(' ', 7) - 7) : "", 
-                msg.find(' ', 7) != std::string::npos ? msg.substr(msg.find(' ', 7) + 1) : "");
-        } else if (msg.starts_with("DOWNLOAD ")) {
-            // create and enter download flow
-            // this->current_flow = std::make_unique<DownloadFlow>(this, msg);
-            throw std::runtime_error("not_implemented: DOWNLOAD flow not implemented yet");
-        
+        } else if (is_cmd(msg, "AUTH")) {
+            this->current_flow = std::make_unique<AuthenticateFlow>(this, word_from(msg, 5));
+        } else if (is_cmd(msg, "UPLOAD")) {
+            this->current_flow = std::make_unique<UploadFlow>(this, word_from(msg, 7), (msg.find(' ', 7) != std::string::npos ? word_from(msg, msg.find(' ', 7) + 1) : ""));
+        } else if (is_cmd(msg, "DOWNLOAD")) {
+            this->downloadFile(word_from(msg, 9));
         } else {
             throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
@@ -136,6 +132,12 @@ void Session::list(const std::string path) {
 }
 
 void Session::changeDirectory(const std::string &path) {
+    if (path.empty()) {
+        throw std::runtime_error("no_path: CD command requires a path argument");
+    }
+    if (path.find("..") != std::string::npos) {
+        throw std::runtime_error("invalid_path: Path cannot contain '..'");
+    }
     namespace fs = std::filesystem;
 
     std::string full_path = this->working_directory + "/" + path;
@@ -147,11 +149,18 @@ void Session::changeDirectory(const std::string &path) {
     send_msg(this->client_fd, "OK Changed directory to " + path);
 }
 
+void Session::downloadFile(const std::string &path) {
+    send_file(this->client_fd, this->client_directory + "/" + path);
+}
+
 void Session::deleteFile(const std::string &path) {
+    if (path.empty()) {
+        throw std::runtime_error("no_path: DELETE command requires a path argument");
+    }
+
     namespace fs = std::filesystem;
 
     std::string full_path = this->client_directory + "/" + path;
-
     if (!fs::exists(full_path)) {
         throw std::runtime_error("file_not_found: File does not exist");
     }

@@ -44,5 +44,6 @@ int client_fd;
 
     void list(const std::string path);
     void changeDirectory(const std::string &path);
+    void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
 };

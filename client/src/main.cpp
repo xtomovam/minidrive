@@ -61,21 +61,26 @@ void process_response(const std::string &response) {
 
 void send_cmd(const int &fd, const std::string &cmd) {
     send_msg(fd, cmd);
-    std::string response;
-
-    // send command
-    if (cmd.starts_with("UPLOAD ")) { // upload -> send file
-        if (cmd.size() <= 7) {
-            throw std::runtime_error("no_path: UPLOAD command requires a path argument");
-        }
-        send_file(fd, cmd.substr(7, cmd.find(' ', 7) - 7));
-    } else if (cmd.starts_with("DOWNLOAD ")) {
-        std::istringstream iss(cmd.substr(9));
-        std::string filepath;
-        iss >> filepath;
-        recv_file(fd, filepath);
-    }
     std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
+
+    // upload -> send file
+    if (is_cmd(cmd, "UPLOAD")) { 
+        if (cmd.size() > 7) {
+            send_file(fd, word_from(cmd, 7));
+        }
+
+    // download -> receive file
+    } else if (is_cmd(cmd, "DOWNLOAD")) {
+        if (cmd.size() > 10 && cmd.find(' ', 10) != std::string::npos) {
+            recv_file(fd, word_from(cmd, cmd.find(' ', 10) + 1));
+        } else {
+            recv_file(fd, word_from(cmd, 9));
+        }
+        std::cout << "OK\nFile downloaded successfully" << std::flush;
+        return;
+    }
+
+    process_response(recv_msg(fd));
 }
 
 void authenticate(const int &fd, const std::string &user) {
@@ -141,14 +146,13 @@ void main_loop(const int &fd, const Mode &mode) {
             // not a local command -> send to server if in remote mode
             } else {
                 if (mode == Mode::Remote) {
-                    // send command
-                    send_cmd(fd, cmd);
-
-                    // wait for response
-                    std::string response = recv_msg(fd);
-                    process_response(response);
+                    try {
+                        send_cmd(fd, cmd);
+                    } catch (const std::exception &e) {
+                        std::cerr << "ERROR: " << e.what() << std::flush;
+                    }
                 } else {
-                    std::cout << "Unknown command: " << cmd << std::endl;
+                    std::cout << "Unknown command: " << cmd << std::flush;
                 }
             }
             

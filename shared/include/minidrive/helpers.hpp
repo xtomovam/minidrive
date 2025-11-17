@@ -6,7 +6,11 @@
 #include <fstream>
 #include <filesystem>
 
-std::string recv_msg(const int &fd);
+bool is_cmd(const std::string &msg, const std::string &cmd);
+
+const std::string word_from(const std::string &str, const size_t &start);
+
+const std::string recv_msg(const int &fd);
 void send_msg(const int &fd, const std::string &msg);
 
 void recv_file(const int &fd, const std::string &filepath);

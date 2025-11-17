@@ -1,7 +1,26 @@
 #include "minidrive/helpers.hpp"
 #include <iostream>
 
-std::string recv_msg(const int &fd) {
+bool is_cmd(const std::string &msg, const std::string &cmd) {
+    return msg.starts_with(cmd) && (msg.size() == cmd.size() || msg[cmd.size()] == ' ');
+}
+
+const std::string word_from(const std::string &str, const size_t &start) {
+    if (start >= str.size()) {
+        return "";
+    }
+    
+    std::string word;
+    size_t pos = str.find(' ', start);
+    if (pos == std::string::npos) {
+        word = str.substr(start);
+    } else {
+        word = str.substr(start, pos - start);
+    }
+    return word;
+}
+
+const std::string recv_msg(const int &fd) {
     std::string result;
     char temp[TMP_BUFF_SIZE];
     

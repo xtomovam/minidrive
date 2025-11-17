@@ -1,6 +1,9 @@
 #include "flows/upload_flow.hpp"
 
 UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::string remote_path) : Flow(s), remote_path(remote_path) {
+    if (local_path.empty()) {
+        throw std::runtime_error("no_path: UPLOAD command requires a path argument");
+    }
     if (remote_path.find("..") != std::string::npos) {
         throw std::runtime_error("invalid_path: Remote path cannot contain '..'");
     }

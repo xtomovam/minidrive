@@ -38,72 +38,7 @@ int create_listen_socket(std::uint16_t port) {
 }
 
 }
-const std::string list(const std::string &cmd) {
-    namespace fs = std::filesystem;
 
-    std::string path = ".";
-    if (cmd.size() > 5) {
-        std::istringstream iss(cmd.substr(5));
-        iss >> path;
-    }
-
-    std::ostringstream out;
-    size_t n = 0;
-    for (const auto &entry : fs::directory_iterator(path)) {
-        if (n > 0) {
-            out << "\n";
-        }
-
-        if (fs::is_directory(entry.status())) {
-            out << "[DIR]  ";
-        } else {
-            out << "       ";
-        }
-
-        out << entry.path().filename().string();
-        n++;
-    }
-
-    if (n == 0) {
-        out << "\n";
-    }
-
-    return out.str();
-}
-
-const std::string cd(const std::string &cmd) {
-    namespace fs = std::filesystem;
-    if (cmd.size() <= 3) {
-        throw std::runtime_error("no_path: CD command requires a path argument");
-    }
-    std::string path = cmd.substr(3);
-    std::cout << "Changing directory to: " << path << std::endl;
-
-    fs::current_path(path);
-
-    return "Changed directory to " + path;
-}
-
-const std::string upload(const int &client_fd, const std::string &cmd) {
-    // parse command
-    std::string client_path;
-    std::string server_path;
-    if (cmd.size() <= 7) {
-        throw std::runtime_error("no_path: UPLOAD command requires a path argument");
-    }
-    std::istringstream iss(cmd.substr(7));
-    if (!(iss >> client_path)) {
-        throw std::runtime_error("no_path: UPLOAD command requires a path argument");
-    }
-    if (!(iss >> server_path)) {
-        server_path = client_path.substr(client_path.find_last_of("/\\") + 1);
-    }
-
-    // receive and save file data
-    recv_file(client_fd, server_path);
-
-    return "Uploaded " + client_path + " to " + server_path;
-}
 
 const std::string download(const int &client_fd, const std::string &cmd) {
     // parse command
@@ -125,27 +60,6 @@ const std::string download(const int &client_fd, const std::string &cmd) {
 
     return "Downloaded " + server_path + " to " + client_path;
 }
-
-const std::string delete_file(const std::string &cmd) {
-    // parse command
-    namespace fs = std::filesystem;
-    if (cmd.size() <= 7) {
-        throw std::runtime_error("no_path: DELETE command requires a path argument");
-    }
-    std::string path = cmd.substr(7);
-
-    // delete file
-    if (!fs::exists(path)) {
-        throw std::runtime_error("file_not_found: File does not exist");
-    }
-    if (fs::is_directory(path)) {
-        throw std::runtime_error("is_directory: Path is a directory");
-    }
-    fs::remove(path);
-
-    return "Deleted file " + path;
-}
-
 
 void start_simple_server(std::uint16_t port) {
     int listen_fd = create_listen_socket(port);
