@@ -28,6 +28,6 @@ void UploadFlow::onMessage(const std::string& msg) {
             throw;
         }
     }
-    this->session->send("OK File uploaded successfully to " + this->remote_path);
+    this->session->send("File uploaded successfully to " + this->remote_path);
     this->session->leaveFlow();
 }

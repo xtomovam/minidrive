@@ -3,6 +3,7 @@
 #include "../../shared/include/minidrive/helpers.hpp"
 
 #include <memory>
+#include <functional>
 
 class Flow;
 
@@ -13,10 +14,11 @@ public:
         AwaitingFile
     };
 
-    Session(const int &fd, const std::string &root);
+    Session(const int &fd, const std::string &root, std::function<void(int)> close_callback);
     ~Session(); // Custom destructor to handle unique_ptr<Flow>
 
     void onMessage(const std::string &msg);
+    void exit();
 
     // API for flows
     void send(const std::string &msg) const;
@@ -49,11 +51,13 @@ private:
 
     const int client_fd;
     const std::string root;
+    std::function<void(int)> close_callback;
     std::string working_directory = "";
     std::string client_directory = "";
     std::string client_username = "";
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
+    bool authenticated = false;
 
     std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
 
@@ -66,5 +70,4 @@ private:
     void removeDirectory(const std::string &path);
     void move(const std::string &source, const std::string &destination);
     void copy(const std::string &source, const std::string &destination);
-
 };

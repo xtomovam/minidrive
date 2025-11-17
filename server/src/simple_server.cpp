@@ -73,6 +73,7 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
 
     // main server loop
     while (true) {
+        std::vector<int> toClose;
         
         // add all client fds to set
         fd_set readfds;
@@ -111,11 +112,15 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
             }
 
             // create session
-            sessions.emplace(client_fd, std::make_unique<Session>(client_fd, root));
+            sessions.emplace(client_fd,
+                std::make_unique<Session>(client_fd, root, [&](int fd){
+                    std::cout << "Closing session for client fd=" << fd << std::endl;
+                    toClose.push_back(fd);
+                })
+            );
         }
 
         // existing client sent message -> read and process
-        std::vector<int> toClose;
         for (auto &p : sessions) {
             int fd = p.first;
             if (FD_ISSET(fd, &readfds)) {

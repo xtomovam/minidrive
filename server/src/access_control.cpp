@@ -30,7 +30,20 @@ bool verify_pwd(const std::string &hash, const std::string &password) {
 }
 
 nlohmann::json load_users(const std::string &root) {
-    std::ifstream file(root + "/users.json");
+    std::string path = root + "/users.json";
+    // if file does not exist, create empty database
+    if (!std::filesystem::exists(path)) {
+        nlohmann::json empty = nlohmann::json::object();
+        std::ofstream outfile(path);
+        if (!outfile.is_open()) {
+            throw std::runtime_error("database: Could not create users database");
+        }
+        outfile << empty.dump(4);
+        return empty;
+    }
+
+    // load database
+    std::ifstream file(path);
     if (!file.is_open()) {
         throw std::runtime_error("database: Could not open users database for reading");
     }

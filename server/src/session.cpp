@@ -5,30 +5,30 @@
 #include <iostream>
 
 // constructor
-Session::Session(const int &fd, const std::string &root) : client_fd(fd), root(root), working_directory(root + "/public"), client_directory(root + "/public") {}
+Session::Session(const int &fd, const std::string &root, std::function<void(int)> close_callback) : client_fd(fd), root(root), close_callback(close_callback), working_directory(root + "/public"), client_directory(root + "/public") {}
 
 // destructor
 Session::~Session() = default;
 
 // main message handler
 void Session::onMessage(const std::string &msg) {
-    // expecting a file -> delegate to flow
-    if (this->state == State::AwaitingFile) {
+    try {
+        // expecting a file -> delegate to flow
+        if (this->state == State::AwaitingFile) {
+            if (this->current_flow) {
+                this->current_flow->onMessage(msg);
+                return;
+            } else {
+                throw std::runtime_error("no_flow: No active flow to receive file");
+            }
+        }
+
+        // in a flow -> delegate to flow
         if (this->current_flow) {
             this->current_flow->onMessage(msg);
             return;
-        } else {
-            throw std::runtime_error("no_flow: No active flow to receive file");
         }
-    }
 
-    // in a flow -> delegate to flow
-    if (this->current_flow) {
-        this->current_flow->onMessage(msg);
-        return;
-    }
-
-    try {
         // simple commands
         if (is_cmd(msg, "LIST")) {
             this->list(word_from(msg, 5));
@@ -46,14 +46,18 @@ void Session::onMessage(const std::string &msg) {
             this->move(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
         } else if (is_cmd(msg, "COPY")) {
             this->copy(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
+        } else if (is_cmd(msg, "EXIT")) {
+            this->exit();
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
-            if (word_from(msg, 5).empty()) {
-                this->send("[warning] operating in public mode - files are visible to everyone");
-            } else {
+            if (this->authenticated) {
+                throw std::runtime_error("permission_denied: Unable to re-authenticate");
+            }
+            if (!word_from(msg, 5).empty()) {
                 this->current_flow = std::make_unique<AuthenticateFlow>(this, word_from(msg, 5));
             }
+            this->authenticated = true;
         } else if (is_cmd(msg, "UPLOAD")) {
             this->current_flow = std::make_unique<UploadFlow>(this, word_from(msg, 7), (msg.find(' ', 7) != std::string::npos ? word_from(msg, msg.find(' ', 7) + 1) : ""));
         } else if (is_cmd(msg, "DOWNLOAD")) {
@@ -67,6 +71,10 @@ void Session::onMessage(const std::string &msg) {
             this->leaveFlow();
         }
     }
+}
+
+void Session::exit() {
+    close_callback(this->client_fd);
 }
 
 // API for flows
@@ -206,7 +214,7 @@ void Session::list(const std::string path) {
         out << "\n";
     }
 
-    this->send("OK " + out.str());
+    this->send(out.str());
 }
 
 void Session::downloadFile(const std::string &path) {
@@ -226,7 +234,7 @@ void Session::deleteFile(const std::string &path) {
 
     fs::remove(full_path);
 
-    this->send("OK Deleted file " + path);
+    this->send("Deleted file " + path);
 }
 
 void Session::changeDirectory(const std::string &path) {
@@ -241,7 +249,7 @@ void Session::changeDirectory(const std::string &path) {
 
     this->setWorkingDirectory(full_path);
 
-    this->send("OK Changed directory to " + path);
+    this->send("Changed directory to " + path);
 }
 
 void Session::makeDirectory(const std::string &path) {
@@ -262,7 +270,7 @@ void Session::makeDirectory(const std::string &path) {
 
     fs::create_directories(full_path);
 
-    this->send("OK Created directory " + path);
+    this->send("Created directory " + path);
 }
 
 void Session::removeDirectory(const std::string &path) {
@@ -277,7 +285,7 @@ void Session::removeDirectory(const std::string &path) {
 
     fs::remove_all(full_path);
 
-    this->send("OK Removed directory " + path);
+    this->send("Removed directory " + path);
 }
 
 void Session::move(const std::string &source, const std::string &destination) {
@@ -295,7 +303,7 @@ void Session::move(const std::string &source, const std::string &destination) {
 
     fs::rename(full_source_path, full_destination_path);
 
-    this->send("OK Moved " + source + " to " + destination);
+    this->send("Moved " + source + " to " + destination);
 }
 
 void Session::copy(const std::string &source, const std::string &destination) {
@@ -313,5 +321,5 @@ void Session::copy(const std::string &source, const std::string &destination) {
 
     fs::copy(full_source_path, full_destination_path, fs::copy_options::recursive);
 
-    this->send("OK Copied " + source + " to " + destination);
+    this->send("Copied " + source + " to " + destination);
 }

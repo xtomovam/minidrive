@@ -52,10 +52,10 @@ enum class Mode {
 
 void process_response(const std::string &response) {
     // hadnle OK and ERROR responses
-    if (response.starts_with("OK")) {
-        std::cout << "OK\n" << response.substr(3) << std::flush;
+    if (!response.starts_with("ERROR")) {
+        std::cout << "OK\n" << response << std::flush;
     } else if (response.starts_with("ERROR")) {
-        std::cout << response << std::flush;
+        std::cout << response.substr(0, response.find(':')) << "\n" << response.substr(response.find(':') + 2) << std::flush;
     }
 }
 
@@ -86,6 +86,10 @@ void send_cmd(const int &fd, const std::string &cmd) {
 }
 
 void authenticate(const int &fd, const std::string &user) {
+    if (user.empty()) {
+        std::cout << "[warning] operating in public mode - files are visible to everyone" << std::endl;
+    }
+
     send_msg(fd, "AUTH " + user);
     if (!user.empty()) {
         std::string response = recv_msg(fd);
@@ -104,15 +108,14 @@ void authenticate(const int &fd, const std::string &user) {
             std::getline(std::cin, answer);
             send_msg(fd, answer);
             std::cout << recv_msg(fd) << std::endl;
-            std::getline(std::cin, answer);
-            send_msg(fd, answer);
-            std::cout << recv_msg(fd) << std::endl;
-        
+            if (answer == "y") {
+                std::getline(std::cin, answer);
+                send_msg(fd, answer);
+                std::cout << recv_msg(fd) << std::endl;
+            }
         } else {
             throw std::runtime_error("unknown_response: Unknown authentication response: " + response);
         }
-    } else {
-        std::cout << recv_msg(fd) << std::endl;
     }
 }
 
@@ -142,6 +145,9 @@ void main_loop(const int &fd, const Mode &mode) {
             if (is_cmd(cmd, ("HELP"))) {
                 print_help();
             } else if (is_cmd(cmd, ("EXIT"))) {
+                if (mode == Mode::Remote) {
+                    send_cmd(fd, "EXIT");
+                }
                 std::cout << "Exiting...\n";
                 return;
 
@@ -152,6 +158,10 @@ void main_loop(const int &fd, const Mode &mode) {
                         send_cmd(fd, cmd);
                     } catch (const std::exception &e) {
                         std::cerr << "ERROR: " << e.what() << std::flush;
+                        if (std::string(e.what()).find("connection_closed") != std::string::npos) {
+                            std::cerr << "\nConnection to server lost. Exiting...\n";
+                            return;
+                        }
                     }
                 } else {
                     std::cout << "Unknown command: " << cmd << std::flush;

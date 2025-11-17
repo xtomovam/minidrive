@@ -1,14 +1,6 @@
 #include "flows/authenticate_flow.hpp"
 
 AuthenticateFlow::AuthenticateFlow(Session* s, const std::string &user) : Flow(s), username(user) {
-
-    // public mode
-    if (user.empty()) {
-        s->send("[warning] operating in public mode - files are visible to everyone");
-        this->session->leaveFlow();
-        return;
-    }
-
     // user not exists -> ask for registration
     if (!exists_user(user)) {
         s->send("User " + user + " not found. Register? (y/n):");
@@ -22,13 +14,6 @@ AuthenticateFlow::AuthenticateFlow(Session* s, const std::string &user) : Flow(s
     }
 }
 
-void AuthenticateFlow::success() {
-    this->session->setClientUsername(this->username);
-    this->session->setClientDirectory(this->session->getRoot() + "/" + this->username);
-    this->session->setWorkingDirectory(this->session->getRoot() + "/" + this->username);
-    this->session->leaveFlow();
-}
-
 void AuthenticateFlow::onMessage(const std::string& msg) {
     switch (this->state) {
         // registration choice
@@ -37,6 +22,7 @@ void AuthenticateFlow::onMessage(const std::string& msg) {
                 this->session->send("Password for " + this->username + ":");
                 this->state = State::AwaitingRegistrationPassword;
             } else { // no -> cancel flow
+                this->session->send("Registration cancelled.");
                 this->session->leaveFlow();
             }
             break;
@@ -44,18 +30,21 @@ void AuthenticateFlow::onMessage(const std::string& msg) {
         // registration password
         case State::AwaitingRegistrationPassword:
             register_user(this->username, msg);
-            this->session->send("Registration successful.");
-            
             std::filesystem::create_directories(this->session->getRoot() + "/" + this->username);
+            
+            this->session->send("Registration successful.");
 
-            this->success();
+            this->session->exit();
             break;
 
         // authentication password
         case State::AwaitingAuthenticationPassword:
             if (verify(this->username, msg)) {
-                this->session->send("Authentication successful.");
-                this->success();
+                this->session->send("Logged as " + this->username);
+                this->session->setClientUsername(this->username);
+                this->session->setClientDirectory(this->session->getRoot() + "/" + this->username);
+                this->session->setWorkingDirectory(this->session->getRoot() + "/" + this->username);
+                this->session->leaveFlow();
             } else {
                 this->session->send("Authentication failed.\n[warning] operating in public mode - files are visible to everyone");
                 this->session->leaveFlow();
