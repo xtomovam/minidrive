@@ -71,12 +71,14 @@ void send_cmd(const int &fd, const std::string &cmd) {
 
     // download -> receive file
     } else if (is_cmd(cmd, "DOWNLOAD")) {
+        std::string local_path = "";
         if (cmd.size() > 10 && cmd.find(' ', 10) != std::string::npos) {
-            recv_file(fd, word_from(cmd, cmd.find(' ', 10) + 1));
+            local_path = word_from(cmd, cmd.find(' ', 10) + 1);
         } else {
-            recv_file(fd, word_from(cmd, 9));
+            local_path = word_from(cmd, 9);
         }
-        std::cout << "OK\nFile downloaded successfully" << std::flush;
+        recv_file(fd, local_path);
+        std::cout << "OK\nFile downloaded successfully to " << local_path << std::flush;
         return;
     }
 
@@ -137,9 +139,9 @@ void main_loop(const int &fd, const Mode &mode) {
             input_buffer.erase(0, pos + 1);
 
             // process local commands
-            if (cmd == "HELP") {
+            if (is_cmd(cmd, ("HELP"))) {
                 print_help();
-            } else if (cmd == "EXIT") {
+            } else if (is_cmd(cmd, ("EXIT"))) {
                 std::cout << "Exiting...\n";
                 return;
 

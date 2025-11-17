@@ -2,12 +2,16 @@
 #include "flows/flow.hpp"
 #include "flows/authenticate_flow.hpp"
 #include "flows/upload_flow.hpp"
+#include <iostream>
 
 Session::Session(const int &fd) : client_fd(fd) {}
 
-Session::~Session() = default; // Implementation here where Flow is complete
+Session::~Session() = default;
 
+// main message handler
 void Session::onMessage(const std::string &msg) {
+
+    // expecting a file -> delegate to flow
     if (this->state == State::AwaitingFile) {
         if (this->current_flow) {
             this->current_flow->onMessage(msg);
@@ -17,6 +21,7 @@ void Session::onMessage(const std::string &msg) {
         }
     }
 
+    // in a flow -> delegate to flow
     if (this->current_flow) {
         this->current_flow->onMessage(msg);
         return;
@@ -26,12 +31,14 @@ void Session::onMessage(const std::string &msg) {
         // simple commands
         if (is_cmd(msg, "LIST")) {
             this->list(word_from(msg, 5));
-        } else if (is_cmd(msg, "CD")) {
-            this->changeDirectory(word_from(msg, 3));
         } else if (is_cmd(msg, "DOWNLOAD")) {
             this->downloadFile(word_from(msg, 9));
         } else if (is_cmd(msg, "DELETE")) {
             this->deleteFile(word_from(msg, 7));
+        } else if (is_cmd(msg, "CD")) {
+            this->changeDirectory(word_from(msg, 3));
+        } else if (is_cmd(msg, "MKDIR")) {
+            this->makeDirectory(word_from(msg, 6));
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
@@ -50,6 +57,8 @@ void Session::onMessage(const std::string &msg) {
         }
     }
 }
+
+// API for flows
 
 void Session::send(const std::string &msg) const {
     send_msg(this->client_fd, msg);
@@ -102,11 +111,19 @@ void Session::setClientUsername(const std::string &username) {
     this->client_username = username;
 }
 
+// command implementations
 
 void Session::list(const std::string path) {
     namespace fs = std::filesystem;
 
-    std::string full_path = this->working_directory + "/" + path;
+    std::string full_path = this->working_directory + (path.empty() ? "" : "/" + path);
+    
+    // Debug output
+    std::cout << "DEBUG LIST: working_directory='" << this->working_directory << "'" << std::endl;
+    std::cout << "DEBUG LIST: path='" << path << "'" << std::endl;
+    std::cout << "DEBUG LIST: full_path='" << full_path << "'" << std::endl;
+    std::cout << "DEBUG LIST: exists=" << (fs::exists(full_path) ? "yes" : "no") << std::endl;
+    
     std::ostringstream out;
     size_t n = 0;
     for (const auto &entry : fs::directory_iterator(full_path)) {
@@ -131,24 +148,6 @@ void Session::list(const std::string path) {
     send_msg(this->client_fd, "OK " + out.str());
 }
 
-void Session::changeDirectory(const std::string &path) {
-    if (path.empty()) {
-        throw std::runtime_error("no_path: CD command requires a path argument");
-    }
-    if (path.find("..") != std::string::npos) {
-        throw std::runtime_error("invalid_path: Path cannot contain '..'");
-    }
-    namespace fs = std::filesystem;
-
-    std::string full_path = this->working_directory + "/" + path;
-
-    fs::current_path(full_path);
-
-    this->working_directory = full_path;
-
-    send_msg(this->client_fd, "OK Changed directory to " + path);
-}
-
 void Session::downloadFile(const std::string &path) {
     send_file(this->client_fd, this->client_directory + "/" + path);
 }
@@ -170,4 +169,43 @@ void Session::deleteFile(const std::string &path) {
     fs::remove(full_path);
 
     send_msg(this->client_fd, "OK Deleted file " + path);
+}
+
+void Session::changeDirectory(const std::string &path) {
+    if (path.empty()) {
+        throw std::runtime_error("no_path: CD command requires a path argument");
+    }
+    if (path.find("..") != std::string::npos) {
+        throw std::runtime_error("invalid_path: Path cannot contain '..'");
+    }
+    namespace fs = std::filesystem;
+
+    std::string full_path = this->working_directory + "/" + path;
+    
+    if (!fs::exists(full_path)) {
+        throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+    }
+    if (!fs::is_directory(full_path)) {
+        throw std::runtime_error("not_directory: Path is not a directory: " + path);
+    }
+
+    this->working_directory = full_path;
+
+    send_msg(this->client_fd, "OK Changed directory to " + path);
+}
+
+void Session::makeDirectory(const std::string &path) {
+    if (path.empty()) {
+        throw std::runtime_error("no_path: MKDIR command requires a path argument");
+    }
+    if (path.find("..") != std::string::npos) {
+        throw std::runtime_error("invalid_path: Path cannot contain '..'");
+    }
+    namespace fs = std::filesystem;
+
+    std::string full_path = this->working_directory + "/" + path;
+
+    fs::create_directories(full_path);
+
+    send_msg(this->client_fd, "OK Created directory " + path);
 }

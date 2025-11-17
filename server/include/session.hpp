@@ -43,7 +43,10 @@ int client_fd;
     State state = State::AwaitingMessage;
 
     void list(const std::string path);
-    void changeDirectory(const std::string &path);
     void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
+
+    void changeDirectory(const std::string &path);
+    void makeDirectory(const std::string &path);
+
 };
