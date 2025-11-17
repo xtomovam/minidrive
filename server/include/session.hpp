@@ -36,6 +36,17 @@ public:
     void setClientUsername(const std::string &username);
     
 private:
+    enum class VerifyType {
+        File,
+        Directory,
+        None
+    };
+    enum class VerifyExistence {
+        MustExist,
+        MustNotExist,
+        DontCare
+    };
+
     const int client_fd;
     const std::string root;
     std::string working_directory = "";
@@ -44,7 +55,7 @@ private:
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
 
-    std::string verifyPath(const std::string &path, bool dir) const;
+    std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
 
     void list(const std::string path);
     void downloadFile(const std::string &path);
@@ -52,5 +63,8 @@ private:
 
     void changeDirectory(const std::string &path);
     void makeDirectory(const std::string &path);
+    void removeDirectory(const std::string &path);
+    void move(const std::string &source, const std::string &destination);
+    void copy(const std::string &source, const std::string &destination);
 
 };

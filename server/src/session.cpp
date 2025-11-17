@@ -40,6 +40,12 @@ void Session::onMessage(const std::string &msg) {
             this->changeDirectory(word_from(msg, 3));
         } else if (is_cmd(msg, "MKDIR")) {
             this->makeDirectory(word_from(msg, 6));
+        } else if (is_cmd(msg, "RMDIR")) {
+            this->removeDirectory(word_from(msg, 6));
+        } else if (is_cmd(msg, "MOVE")) {
+            this->move(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
+        } else if (is_cmd(msg, "COPY")) {
+            this->copy(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
@@ -115,7 +121,7 @@ void Session::setClientDirectory(const std::string &path) {
 
 void Session::setWorkingDirectory(const std::string &path) {
     // ensure path is within client directory
-    this->working_directory = this->verifyPath(path, true);
+    this->working_directory = this->verifyPath(path, VerifyType::Directory, VerifyExistence::MustExist);
 }
 
 void Session::setClientUsername(const std::string &username) {
@@ -124,30 +130,41 @@ void Session::setClientUsername(const std::string &username) {
 
 // security check
 
-std::string Session::verifyPath(const std::string &path, bool dir) const {
+std::string Session::verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const {
     namespace fs = std::filesystem;
 
     // ensure path is within client directory
     fs::path abs_client_dir = fs::weakly_canonical(this->client_directory);
     fs::path abs_path = fs::weakly_canonical(path);
-
     if (!(std::mismatch(abs_client_dir.begin(), abs_client_dir.end(),abs_path.begin(), abs_path.end()).first == abs_client_dir.end())) {
         throw std::runtime_error("access_denied: Cannot change directory outside of client directory (full path: " + path + ")");
     }
-    if (!fs::exists(path)) {
-        if (dir) {
-            throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
-        } else {
-            throw std::runtime_error("file_not_found: File does not exist: " + path);
-        }
+    
+    // verify type
+    if (type == VerifyType::Directory && !fs::is_directory(path)) {
+        throw std::runtime_error("not_directory: Path is not a directory: " + path);
     }
-    if (dir && !fs::is_directory(path)) {
-        if (dir) {
-            throw std::runtime_error("not_directory: Path is not a directory: " + path);
-        }
-    }
-    if (!dir && fs::is_directory(path)) {
+    if (type == VerifyType::File && fs::is_directory(path)) {
         throw std::runtime_error("is_directory: Path is a directory: " + path);
+    }
+
+    // verify existence
+    if (!fs::exists(path) && existence == VerifyExistence::MustExist) {
+        if (type == VerifyType::Directory) {
+            throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+        } else if (type == VerifyType::File) {
+            throw std::runtime_error("file_not_found: File does not exist: " + path);
+        } else {
+            throw std::runtime_error("path_not_found: Path does not exist: " + path);
+        }
+    } else if (fs::exists(path) && existence == VerifyExistence::MustNotExist) {
+        if (type == VerifyType::Directory) {
+            throw std::runtime_error("overwrite_error: Directory already exists: " + path);
+        } else if (type == VerifyType::File) {
+            throw std::runtime_error("overwrite_error: File already exists: " + path);
+        } else {
+            throw std::runtime_error("overwrite_error: Path already exists: " + path);
+        }
     }
 
     return abs_path.string();
@@ -160,7 +177,7 @@ void Session::list(const std::string path) {
 
     std::string full_path = this->working_directory + (path.empty() ? "" : "/" + path);
 
-    verifyPath(full_path, true);
+    verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
     
     // Debug output
     std::cout << "DEBUG LIST: working_directory='" << this->working_directory << "'" << std::endl;
@@ -193,7 +210,7 @@ void Session::list(const std::string path) {
 }
 
 void Session::downloadFile(const std::string &path) {
-    verifyPath(this->client_directory + "/" + path, false);
+    this->verifyPath(this->client_directory + "/" + path, VerifyType::File, VerifyExistence::MustExist);
     send_file(this->client_fd, this->client_directory + "/" + path);
 }
 
@@ -205,7 +222,7 @@ void Session::deleteFile(const std::string &path) {
     }
 
     std::string full_path = this->client_directory + "/" + path;
-    this->verifyPath(full_path, false);
+    this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
 
     fs::remove(full_path);
 
@@ -220,7 +237,7 @@ void Session::changeDirectory(const std::string &path) {
     }
 
     std::string full_path = this->working_directory + "/" + path;
-    this->verifyPath(full_path, true);
+    this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
 
     this->setWorkingDirectory(full_path);
 
@@ -236,9 +253,9 @@ void Session::makeDirectory(const std::string &path) {
 
     std::string full_path = this->working_directory + "/" + path;
     try {
-        this->verifyPath(full_path, true);
+        this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustNotExist);
     } catch (const std::runtime_error &e) {
-        if (std::string(e.what()).find("directory_not_found") == std::string::npos) {
+        if (std::string(e.what()).find("access_denied") != std::string::npos) {
             throw;
         }
     }
@@ -246,4 +263,55 @@ void Session::makeDirectory(const std::string &path) {
     fs::create_directories(full_path);
 
     this->send("OK Created directory " + path);
+}
+
+void Session::removeDirectory(const std::string &path) {
+    namespace fs = std::filesystem;
+
+    if (path.empty()) {
+        throw std::runtime_error("no_path: RMDIR command requires a path argument");
+    }
+
+    std::string full_path = this->working_directory + "/" + path;
+    this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
+
+    fs::remove_all(full_path);
+
+    this->send("OK Removed directory " + path);
+}
+
+void Session::move(const std::string &source, const std::string &destination) {
+    namespace fs = std::filesystem;
+
+    if (source.empty() || destination.empty()) {
+        throw std::runtime_error("no_path: MOVE command requires source and destination path arguments");
+    }
+
+    std::string full_source_path = this->working_directory + "/" + source;
+    std::string full_destination_path = this->working_directory + "/" + destination;
+    this->verifyPath(full_source_path, VerifyType::None, VerifyExistence::MustExist);
+    this->verifyPath(full_destination_path.substr(0, full_destination_path.find_last_of("/\\")), VerifyType::Directory, VerifyExistence::MustExist);
+    this->verifyPath(full_destination_path, VerifyType::None, VerifyExistence::MustNotExist);
+
+    fs::rename(full_source_path, full_destination_path);
+
+    this->send("OK Moved " + source + " to " + destination);
+}
+
+void Session::copy(const std::string &source, const std::string &destination) {
+    namespace fs = std::filesystem;
+
+    if (source.empty() || destination.empty()) {
+        throw std::runtime_error("no_path: COPY command requires source and destination path arguments");
+    }
+
+    std::string full_source_path = this->working_directory + "/" + source;
+    std::string full_destination_path = this->working_directory + "/" + destination;
+    this->verifyPath(full_source_path, VerifyType::None, VerifyExistence::MustExist);
+    this->verifyPath(full_destination_path.substr(0, full_destination_path.find_last_of("/\\")), VerifyType::None, VerifyExistence::DontCare);
+    this->verifyPath(full_destination_path, VerifyType::None, VerifyExistence::MustNotExist);
+
+    fs::copy(full_source_path, full_destination_path, fs::copy_options::recursive);
+
+    this->send("OK Copied " + source + " to " + destination);
 }
