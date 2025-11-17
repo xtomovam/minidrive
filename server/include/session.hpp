@@ -13,15 +13,27 @@ public:
         AwaitingMessage,
         AwaitingFile
     };
+    enum class VerifyType {
+        File,
+        Directory,
+        None
+    };
+    enum class VerifyExistence {
+        MustExist,
+        MustNotExist,
+        DontCare
+    };
 
     Session(const int &fd, const std::string &root, std::function<void(int)> close_callback);
     ~Session(); // Custom destructor to handle unique_ptr<Flow>
 
     void onMessage(const std::string &msg);
     void exit();
-
+    
     // API for flows
+    std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
     void send(const std::string &msg) const;
+    void receive_file(const std::string &filepath) const;
     void setState(const State &new_state);
     void enterFlow(Flow* flow);
     void leaveFlow();
@@ -38,17 +50,6 @@ public:
     void setClientUsername(const std::string &username);
     
 private:
-    enum class VerifyType {
-        File,
-        Directory,
-        None
-    };
-    enum class VerifyExistence {
-        MustExist,
-        MustNotExist,
-        DontCare
-    };
-
     const int client_fd;
     const std::string root;
     std::function<void(int)> close_callback;
@@ -58,8 +59,6 @@ private:
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
     bool authenticated = false;
-
-    std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
 
     void list(const std::string path);
     void downloadFile(const std::string &path);

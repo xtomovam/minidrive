@@ -4,21 +4,20 @@ UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::stri
     if (local_path.empty()) {
         throw std::runtime_error("no_path: UPLOAD command requires a path argument");
     }
-    if (remote_path.find("..") != std::string::npos) {
-        throw std::runtime_error("invalid_path: Remote path cannot contain '..'");
-    }
     if (remote_path.empty()) {
         this->remote_path = local_path.substr(local_path.find_last_of("/\\") + 1);
     }
     this->full_remote_path = this->session->getWorkingDirectory() + "/" + this->remote_path;
+    this->session->verifyPath(this->full_remote_path, Session::VerifyType::None, Session::VerifyExistence::MustNotExist);
     this->session->setState(Session::State::AwaitingFile);
+    this->session->send("READY");
 }
 
 void UploadFlow::onMessage(const std::string& msg) {
     (void)msg;
     
     try {
-        recv_file(this->session->getClientFD(), this->full_remote_path);
+        this->session->receive_file(this->full_remote_path);
     } catch (const std::exception &e) {
         if (std::string(e.what()).starts_with("overwrite_error") || std::string(e.what()).starts_with("file_open_failed") || std::string(e.what()).starts_with("file_write_failed")) {
             this->session->send(std::string("ERROR ") + e.what());

@@ -70,6 +70,8 @@ void Session::onMessage(const std::string &msg) {
         if (this->current_flow) {
             this->leaveFlow();
         }
+        this->setState(State::AwaitingMessage);
+        std::cerr << "Error processing command from client fd=" << this->client_fd << ": " << e.what() << "\n";
     }
 }
 
@@ -79,8 +81,53 @@ void Session::exit() {
 
 // API for flows
 
+std::string Session::verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const {
+    namespace fs = std::filesystem;
+
+    // ensure path is within client directory
+    fs::path abs_client_dir = fs::weakly_canonical(this->client_directory);
+    fs::path abs_path = fs::weakly_canonical(path);
+    if (!(std::mismatch(abs_client_dir.begin(), abs_client_dir.end(),abs_path.begin(), abs_path.end()).first == abs_client_dir.end())) {
+        throw std::runtime_error("access_denied: Cannot change directory outside of client directory (full path: " + path + ")");
+    }
+    
+    // verify type
+    if (type == VerifyType::Directory && !fs::is_directory(path)) {
+        throw std::runtime_error("not_directory: Path is not a directory: " + path);
+    }
+    if (type == VerifyType::File && fs::is_directory(path)) {
+        throw std::runtime_error("is_directory: Path is a directory: " + path);
+    }
+
+    // verify existence
+    if (!fs::exists(path) && existence == VerifyExistence::MustExist) {
+        if (type == VerifyType::Directory) {
+            throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+        } else if (type == VerifyType::File) {
+            throw std::runtime_error("file_not_found: File does not exist: " + path);
+        } else {
+            throw std::runtime_error("path_not_found: Path does not exist: " + path);
+        }
+    } else if (fs::exists(path) && existence == VerifyExistence::MustNotExist) {
+        if (type == VerifyType::Directory) {
+            throw std::runtime_error("overwrite_error: Directory already exists: " + path);
+        } else if (type == VerifyType::File) {
+            throw std::runtime_error("overwrite_error: File already exists: " + path);
+        } else {
+            throw std::runtime_error("overwrite_error: Path already exists: " + path);
+        }
+    }
+
+    return abs_path.string();
+}
+
 void Session::send(const std::string &msg) const {
     send_msg(this->client_fd, msg);
+}
+
+void Session::receive_file(const std::string &filepath) const {
+    this->verifyPath(filepath, VerifyType::File, VerifyExistence::MustNotExist);
+    recv_file(this->client_fd, filepath);
 }
 
 void Session::setState(const State &new_state) {
@@ -134,48 +181,6 @@ void Session::setWorkingDirectory(const std::string &path) {
 
 void Session::setClientUsername(const std::string &username) {
     this->client_username = username;
-}
-
-// security check
-
-std::string Session::verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const {
-    namespace fs = std::filesystem;
-
-    // ensure path is within client directory
-    fs::path abs_client_dir = fs::weakly_canonical(this->client_directory);
-    fs::path abs_path = fs::weakly_canonical(path);
-    if (!(std::mismatch(abs_client_dir.begin(), abs_client_dir.end(),abs_path.begin(), abs_path.end()).first == abs_client_dir.end())) {
-        throw std::runtime_error("access_denied: Cannot change directory outside of client directory (full path: " + path + ")");
-    }
-    
-    // verify type
-    if (type == VerifyType::Directory && !fs::is_directory(path)) {
-        throw std::runtime_error("not_directory: Path is not a directory: " + path);
-    }
-    if (type == VerifyType::File && fs::is_directory(path)) {
-        throw std::runtime_error("is_directory: Path is a directory: " + path);
-    }
-
-    // verify existence
-    if (!fs::exists(path) && existence == VerifyExistence::MustExist) {
-        if (type == VerifyType::Directory) {
-            throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
-        } else if (type == VerifyType::File) {
-            throw std::runtime_error("file_not_found: File does not exist: " + path);
-        } else {
-            throw std::runtime_error("path_not_found: Path does not exist: " + path);
-        }
-    } else if (fs::exists(path) && existence == VerifyExistence::MustNotExist) {
-        if (type == VerifyType::Directory) {
-            throw std::runtime_error("overwrite_error: Directory already exists: " + path);
-        } else if (type == VerifyType::File) {
-            throw std::runtime_error("overwrite_error: File already exists: " + path);
-        } else {
-            throw std::runtime_error("overwrite_error: Path already exists: " + path);
-        }
-    }
-
-    return abs_path.string();
 }
 
 // command implementations

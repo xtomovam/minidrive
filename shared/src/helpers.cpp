@@ -78,7 +78,6 @@ void send_msg(const int &fd, const std::string &msg) {
 }
 
 void recv_file(const int &fd, const std::string &filepath) {
-    std::cout << "Receiving file to " << filepath << " ..." << std::endl;
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;

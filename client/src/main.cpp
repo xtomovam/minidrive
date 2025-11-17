@@ -65,8 +65,12 @@ void send_cmd(const int &fd, const std::string &cmd) {
 
     // upload -> send file
     if (is_cmd(cmd, "UPLOAD")) { 
-        if (cmd.size() > 7) {
+        std::string response = recv_msg(fd);
+        if (response.starts_with("READY")) {
             send_file(fd, word_from(cmd, 7));
+        } else {
+            process_response(response);
+            return;
         }
 
     // download -> receive file
