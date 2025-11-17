@@ -1,18 +1,5 @@
 #include "simple_server.hpp"
-#include "../../shared/include/minidrive/helpers.hpp"
-
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <cerrno>
-#include <cstring>
-#include <iostream>
-
-#include <filesystem>
-#include <sstream>
-#include <fstream>
+#include "session.hpp"
 
 namespace {
 
@@ -51,8 +38,7 @@ int create_listen_socket(std::uint16_t port) {
 }
 
 }
-
-std::string list(const std::string &cmd) {
+const std::string list(const std::string &cmd) {
     namespace fs = std::filesystem;
 
     std::string path = ".";
@@ -67,7 +53,7 @@ std::string list(const std::string &cmd) {
         if (n > 0) {
             out << "\n";
         }
-        
+
         if (fs::is_directory(entry.status())) {
             out << "[DIR]  ";
         } else {
@@ -85,7 +71,7 @@ std::string list(const std::string &cmd) {
     return out.str();
 }
 
-std::string cd(const std::string &cmd) {
+const std::string cd(const std::string &cmd) {
     namespace fs = std::filesystem;
     if (cmd.size() <= 3) {
         throw std::runtime_error("no_path: CD command requires a path argument");
@@ -119,7 +105,7 @@ const std::string upload(const int &client_fd, const std::string &cmd) {
     return "Uploaded " + client_path + " to " + server_path;
 }
 
-std::string download(const int &client_fd, const std::string &cmd) {
+const std::string download(const int &client_fd, const std::string &cmd) {
     // parse command
     std::string server_path;
     std::string client_path;
@@ -140,7 +126,7 @@ std::string download(const int &client_fd, const std::string &cmd) {
     return "Downloaded " + server_path + " to " + client_path;
 }
 
-std::string delete_file(const std::string &cmd) {
+const std::string delete_file(const std::string &cmd) {
     // parse command
     namespace fs = std::filesystem;
     if (cmd.size() <= 7) {
@@ -160,39 +146,8 @@ std::string delete_file(const std::string &cmd) {
     return "Deleted file " + path;
 }
 
-const std::string process_command(const int client_fd, const std::string &cmd) {
-    try {
-        if (cmd.starts_with("LIST")) {
-            return "OK " + list(cmd);
-        } 
-        if (cmd.starts_with("CD")) {
-            return "OK " + cd(cmd);
-        } 
-        if (cmd.starts_with("UPLOAD")) {
-            return "OK " + upload(client_fd, cmd);
-        }
-        if (cmd.starts_with("DOWNLOAD")) {
-            return "OK " + download(client_fd, cmd);
-        }
-        if (cmd.starts_with("DELETE")) {
-            return "OK " + delete_file(cmd);
-        }
-        return "ERROR unknown_command: Unknown command: " + cmd;
-    } catch (const std::exception &e) {
-        return std::string("ERROR ") + e.what();
-    }
-    return "OK \n";
-}
 
 void start_simple_server(std::uint16_t port) {
-    // set server root directory
-    try {
-        std::filesystem::current_path("server/root");
-    } catch (const std::exception &e) {
-        std::cerr << "Failed to set server root directory: " << e.what() << std::endl;
-        return;
-    }
-
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
         std::cerr << "Failed to set up listen socket on port " << port << std::endl;
@@ -200,31 +155,88 @@ void start_simple_server(std::uint16_t port) {
     }
     std::cout << "Simple server listening on port " << port << std::endl;
 
-    // Accept loop: handle clients sequentially. For each client, accumulate full message then print once.
+    std::unordered_map<int, Session> sessions;
+
+    // main server loop
     while (true) {
-        sockaddr_in client_addr{};
-        socklen_t client_len = sizeof(client_addr);
-        int client_fd = ::accept(listen_fd, reinterpret_cast<sockaddr*>(&client_addr), &client_len);
-        if (client_fd < 0) {
-            if (errno == EINTR) continue; // retry accept
-            std::perror("accept");
-            break; // fatal accept error -> exit server
+        
+        // add all client fds to set
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(listen_fd, &readfds);
+        int maxfd = listen_fd;
+        for (auto &p : sessions) {
+            FD_SET(p.first, &readfds);
+            if (p.first > maxfd) maxfd = p.first;
         }
 
-        char ipbuf[INET_ADDRSTRLEN];
-        const char* ipstr = ::inet_ntop(AF_INET, &client_addr.sin_addr, ipbuf, sizeof(ipbuf));
-        if (ipstr) {
-            std::cout << "Client connected from " << ipstr << ":" << ntohs(client_addr.sin_port) << std::endl;
+        // wait for event
+        int activity = select(maxfd + 1, &readfds, nullptr, nullptr, nullptr);
+        if (activity < 0) {
+            if (errno == EINTR) continue;
+            perror("select");
+            break;
         }
 
-        while (true) {
-            std::string message = recv_msg(client_fd);
-            std::cout << "Received line (" << message.size() << " bytes): " << message << std::endl;
-            std::string response = process_command(client_fd, message);
+        // new client -> accept connection and create session
+        if (FD_ISSET(listen_fd, &readfds)) {
+            // accept new connection
+            sockaddr_in client_addr{};
+            socklen_t client_len = sizeof(client_addr);
+            int client_fd = ::accept(listen_fd,
+                                     reinterpret_cast<sockaddr*>(&client_addr),
+                                     &client_len);
+            if (client_fd < 0) {
+                perror("accept");
+                continue;
+            }
+            char ipbuf[INET_ADDRSTRLEN];
+            const char* ipstr = ::inet_ntop(AF_INET, &client_addr.sin_addr, ipbuf, sizeof(ipbuf));
+            if (ipstr) {
+                std::cout << "Client connected from " << ipstr << ":" << ntohs(client_addr.sin_port) << std::endl;
+            }
 
-            send_msg(client_fd, response);
+            // create session
+            sessions.emplace(client_fd, Session(client_fd));
         }
-        ::close(client_fd);
+
+        // existing client sent message -> read and process
+        std::vector<int> toClose;
+        for (auto &p : sessions) {
+            int fd = p.first;
+            if (FD_ISSET(fd, &readfds)) {
+                std::string msg = "";
+                try {
+                    std::string msg = recv_msg(fd);
+                } catch (const std::exception &e) {
+                    if (std::string(e.what()).find("connection_closed") != std::string::npos) {
+                        std::cout << "Client " << fd << " disconnected\n";
+                        toClose.push_back(fd);
+                        continue;
+                    } else {
+                        std::cerr << "Error receiving message from client " << fd << ": " << e.what() << "\n";
+                    }
+                }
+
+                if (msg.empty()) {
+                    // client disconnected
+                    std::cout << "Client " << fd << " disconnected\n";
+                    toClose.push_back(fd);
+                    continue;
+                }
+
+                std::cout << "Received (" << msg.size() << " bytes) from fd=" << fd << ": " << msg << "\n";
+
+                // delegate session logic
+                p.second.onMessage(msg);
+            }
+        }
+
+        // close disconnected sessions
+        for (int fd : toClose) {
+            ::close(fd);
+            sessions.erase(fd);
+        }
     }
 
     ::close(listen_fd);

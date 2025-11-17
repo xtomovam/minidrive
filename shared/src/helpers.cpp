@@ -55,7 +55,7 @@ void send_msg(const int &fd, const std::string &msg) {
         }
         total_sent += sent;
     }
-    std::cout << "Sent message (" << total_size << " bytes)" << std::endl;
+    //std::cout << "Sent message (" << total_size << " bytes)" << std::endl;
 }
 
 void recv_file(const int &fd, const std::string &filepath) {

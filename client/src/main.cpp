@@ -78,11 +78,42 @@ void send_cmd(const int &fd, const std::string &cmd) {
     std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 }
 
+void authenticate(const int &fd, const std::string &user) {
+    send_msg(fd, "AUTH " + user);
+    if (!user.empty()) {
+        std::string response = recv_msg(fd);
+        std::cout << response << std::endl;
+
+        // server asks for password -> send answer and wait for result
+        if (response.starts_with("Password")) {
+            std::string answer;
+            std::getline(std::cin, answer);
+            send_msg(fd, answer);
+            std::cout << recv_msg(fd) << std::endl;
+        
+        /// server promts for registration -> send answers and wait for result
+        } else if (response.starts_with("User " + user + " not found")) {
+            std::string answer;
+            std::getline(std::cin, answer);
+            send_msg(fd, answer);
+            std::cout << recv_msg(fd) << std::endl;
+            std::getline(std::cin, answer);
+            send_msg(fd, answer);
+            std::cout << recv_msg(fd) << std::endl;
+        
+        } else {
+            throw std::runtime_error("unknown_response: Unknown authentication response: " + response);
+        }
+    } else {
+        std::cout << recv_msg(fd) << std::endl;
+    }
+}
+
 void main_loop(const int &fd, const Mode &mode) {
     std::string input_buffer;
     char temp[TMP_BUFF_SIZE];
+    
     std::cout << "> " << std::flush;
-
     while (true) {
         // read up to TMP_BUFF_SIZE bytes from stdin
         ssize_t read_bytes = ::read(STDIN_FILENO, temp, sizeof(temp));
@@ -100,13 +131,15 @@ void main_loop(const int &fd, const Mode &mode) {
             std::string cmd = input_buffer.substr(0, pos);
             input_buffer.erase(0, pos + 1);
 
+            // process local commands
             if (cmd == "HELP") {
                 print_help();
             } else if (cmd == "EXIT") {
                 std::cout << "Exiting...\n";
                 return;
+
+            // not a local command -> send to server if in remote mode
             } else {
-                // not a local command -> send to server if in remote mode
                 if (mode == Mode::Remote) {
                     // send command
                     send_cmd(fd, cmd);
@@ -125,7 +158,7 @@ void main_loop(const int &fd, const Mode &mode) {
 }
 
 int main(int argc, char* argv[]) {
-    ::signal(SIGPIPE, SIG_IGN);
+
     // set client root directory
     try {
         std::filesystem::current_path("client/root");
@@ -133,7 +166,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "Failed to set client root directory: " << e.what() << std::endl;
         return 1;
     }
-
     
     // Echo full command line once for diagnostics
     std::cout << "[cmd]";
@@ -147,8 +179,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
+    // parse user
+    std::string host = argv[1];
+    std::string user = "";
+    size_t pos = std::string::npos;
+    if ((pos = host.find("@")) != std::string::npos) {
+        user = host.substr(0, pos);
+        host = host.substr(pos + 1);
+    }
+    
     HostPort hp;
-    if (!parse_host_port(argv[1], hp)) {
+    if (!parse_host_port(host, hp)) {
         std::cerr << "Invalid endpoint format: " << argv[1] << std::endl;
         return 1;
     }
@@ -175,8 +216,16 @@ int main(int argc, char* argv[]) {
         main_loop(fd, Mode::Local);
         return 2;
     }
+    std::cout << "Connected to server." << std::endl;
 
-    main_loop(fd, Mode::Remote);
+    try {
+        authenticate(fd, user);
+        main_loop(fd, Mode::Remote);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        ::close(fd);
+        return 1;
+    }
 
     ::close(fd);
     return 0;
