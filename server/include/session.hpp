@@ -1,13 +1,15 @@
 #pragma once
 
-#include "flow.hpp"
 #include "../../shared/include/minidrive/helpers.hpp"
 
 #include <memory>
 
+class Flow;
+
 class Session {
 public:
     Session(const int &fd);
+    ~Session(); // Custom destructor to handle unique_ptr<Flow>
 
     void onMessage(const std::string &msg);
 

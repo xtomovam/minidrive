@@ -155,7 +155,7 @@ void start_simple_server(std::uint16_t port) {
     }
     std::cout << "Simple server listening on port " << port << std::endl;
 
-    std::unordered_map<int, Session> sessions;
+    std::unordered_map<int, std::unique_ptr<Session>> sessions;
 
     // main server loop
     while (true) {
@@ -197,7 +197,7 @@ void start_simple_server(std::uint16_t port) {
             }
 
             // create session
-            sessions.emplace(client_fd, Session(client_fd));
+            sessions.emplace(client_fd, std::make_unique<Session>(client_fd));
         }
 
         // existing client sent message -> read and process
@@ -205,9 +205,9 @@ void start_simple_server(std::uint16_t port) {
         for (auto &p : sessions) {
             int fd = p.first;
             if (FD_ISSET(fd, &readfds)) {
-                std::string msg = "";
+                std::string msg;
                 try {
-                    std::string msg = recv_msg(fd);
+                    msg = recv_msg(fd);
                 } catch (const std::exception &e) {
                     if (std::string(e.what()).find("connection_closed") != std::string::npos) {
                         std::cout << "Client " << fd << " disconnected\n";
@@ -215,6 +215,7 @@ void start_simple_server(std::uint16_t port) {
                         continue;
                     } else {
                         std::cerr << "Error receiving message from client " << fd << ": " << e.what() << "\n";
+                        continue;
                     }
                 }
 
@@ -228,7 +229,7 @@ void start_simple_server(std::uint16_t port) {
                 std::cout << "Received (" << msg.size() << " bytes) from fd=" << fd << ": " << msg << "\n";
 
                 // delegate session logic
-                p.second.onMessage(msg);
+                p.second->onMessage(msg);
             }
         }
 

@@ -1,6 +1,11 @@
 #include "session.hpp"
+#include "flows/flow.hpp"
+#include "flows/authenticate_flow.hpp"
+#include "flows/upload_flow.hpp"
 
 Session::Session(const int &fd) : client_fd(fd) {}
+
+Session::~Session() = default; // Implementation here where Flow is complete
 
 void Session::onMessage(const std::string &msg) {
     if (this->current_flow) {
@@ -9,20 +14,34 @@ void Session::onMessage(const std::string &msg) {
     }
 
     try {
-        if (msg.starts_with("AUTH ")) {
-            this->current_flow = std::make_unique<AuthenticateFlow>(this, msg.size() > 5 ? msg.substr(5) : "");
-        } else
+        // simple commands
         if (msg.starts_with("LIST")) {
             this->list(msg.size() > 5 ? msg.substr(5) : "");
         } else if (msg.starts_with("CD ")) {
             this->changeDirectory(msg.size() > 3 ? msg.substr(3) : "");
         } else if (msg.starts_with("DELETE ")) {
             this->deleteFile(msg.size() > 7 ? msg.substr(7) : "");
+
+        // commands requiring flows
+        } else if (msg.starts_with("AUTH ")) {
+            this->current_flow = std::make_unique<AuthenticateFlow>(this, msg.size() > 5 ? msg.substr(5) : "");
+        } else if (msg.starts_with("UPLOAD ")) {
+            // create and enter upload flow
+            // this->current_flow = std::make_unique<UploadFlow>(this, msg);
+            throw std::runtime_error("not_implemented: UPLOAD flow not implemented yet");
+        } else if (msg.starts_with("DOWNLOAD ")) {
+            // create and enter download flow
+            // this->current_flow = std::make_unique<DownloadFlow>(this, msg);
+            throw std::runtime_error("not_implemented: DOWNLOAD flow not implemented yet");
+        
         } else {
-            send_msg(this->client_fd, "ERROR unknown_command: Unknown command: " + msg);
+            throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
     } catch (const std::exception &e) {
         send_msg(this->client_fd, std::string("ERROR ") + e.what());
+        if (this->current_flow) {
+            this->leaveFlow();
+        }
     }
 }
 

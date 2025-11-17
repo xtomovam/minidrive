@@ -1,19 +1,7 @@
 #pragma once
 
-#include <string>
-
-class Session;
-
-class Flow {
-public:
-    Flow(Session* s);
-    virtual ~Flow() = default;
-
-    virtual void onMessage(const std::string& msg);
-
-protected:
-    Session* session;
-};
+#include "flows/flow.hpp"
+#include "access_control.hpp"
 
 class AuthenticateFlow : public Flow {
 public:
