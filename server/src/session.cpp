@@ -114,8 +114,19 @@ void Session::setClientDirectory(const std::string &path) {
 }
 
 void Session::setWorkingDirectory(const std::string &path) {
+    // ensure path is within client directory
+    this->working_directory = this->verifyPath(path, true);
+}
+
+void Session::setClientUsername(const std::string &username) {
+    this->client_username = username;
+}
+
+// security check
+
+std::string Session::verifyPath(const std::string &path, bool dir) const {
     namespace fs = std::filesystem;
-    
+
     // ensure path is within client directory
     fs::path abs_client_dir = fs::weakly_canonical(this->client_directory);
     fs::path abs_path = fs::weakly_canonical(path);
@@ -124,18 +135,22 @@ void Session::setWorkingDirectory(const std::string &path) {
         throw std::runtime_error("access_denied: Cannot change directory outside of client directory (full path: " + path + ")");
     }
     if (!fs::exists(path)) {
-        throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+        if (dir) {
+            throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+        } else {
+            throw std::runtime_error("file_not_found: File does not exist: " + path);
+        }
     }
-    if (!fs::is_directory(path)) {
-        throw std::runtime_error("not_directory: Path is not a directory: " + path);
+    if (dir && !fs::is_directory(path)) {
+        if (dir) {
+            throw std::runtime_error("not_directory: Path is not a directory: " + path);
+        }
     }
-    
+    if (!dir && fs::is_directory(path)) {
+        throw std::runtime_error("is_directory: Path is a directory: " + path);
+    }
 
-    this->working_directory = abs_path.string();
-}
-
-void Session::setClientUsername(const std::string &username) {
-    this->client_username = username;
+    return abs_path.string();
 }
 
 // command implementations
@@ -144,6 +159,8 @@ void Session::list(const std::string path) {
     namespace fs = std::filesystem;
 
     std::string full_path = this->working_directory + (path.empty() ? "" : "/" + path);
+
+    verifyPath(full_path, true);
     
     // Debug output
     std::cout << "DEBUG LIST: working_directory='" << this->working_directory << "'" << std::endl;
@@ -176,36 +193,34 @@ void Session::list(const std::string path) {
 }
 
 void Session::downloadFile(const std::string &path) {
+    verifyPath(this->client_directory + "/" + path, false);
     send_file(this->client_fd, this->client_directory + "/" + path);
 }
 
 void Session::deleteFile(const std::string &path) {
+    namespace fs = std::filesystem;
+
     if (path.empty()) {
         throw std::runtime_error("no_path: DELETE command requires a path argument");
     }
 
-    namespace fs = std::filesystem;
-
     std::string full_path = this->client_directory + "/" + path;
-    if (!fs::exists(full_path)) {
-        throw std::runtime_error("file_not_found: File does not exist");
-    }
-    if (fs::is_directory(full_path)) {
-        throw std::runtime_error("is_directory: Path is a directory");
-    }
+    this->verifyPath(full_path, false);
+
     fs::remove(full_path);
 
     this->send("OK Deleted file " + path);
 }
 
 void Session::changeDirectory(const std::string &path) {
+    namespace fs = std::filesystem;
+
     if (path.empty()) {
         throw std::runtime_error("no_path: CD command requires a path argument");
     }
 
-    namespace fs = std::filesystem;
-
     std::string full_path = this->working_directory + "/" + path;
+    this->verifyPath(full_path, true);
 
     this->setWorkingDirectory(full_path);
 
@@ -213,15 +228,20 @@ void Session::changeDirectory(const std::string &path) {
 }
 
 void Session::makeDirectory(const std::string &path) {
+    namespace fs = std::filesystem;
+
     if (path.empty()) {
         throw std::runtime_error("no_path: MKDIR command requires a path argument");
     }
-    if (path.find("..") != std::string::npos) {
-        throw std::runtime_error("invalid_path: Path cannot contain '..'");
-    }
-    namespace fs = std::filesystem;
 
     std::string full_path = this->working_directory + "/" + path;
+    try {
+        this->verifyPath(full_path, true);
+    } catch (const std::runtime_error &e) {
+        if (std::string(e.what()).find("directory_not_found") == std::string::npos) {
+            throw;
+        }
+    }
 
     fs::create_directories(full_path);
 

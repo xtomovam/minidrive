@@ -44,6 +44,8 @@ private:
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
 
+    std::string verifyPath(const std::string &path, bool dir) const;
+
     void list(const std::string path);
     void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
