@@ -1,9 +1,4 @@
-#include "../../shared/include/minidrive/helpers.hpp"
-
-#include <iostream>
-#include <fstream>
-#include <nlohmann/json.hpp>
-#include <sodium.h>
+#include "access_control.hpp"
 
 std::string hash_pwd(const std::string &password) {
     char hash[crypto_pwhash_STRBYTES];
