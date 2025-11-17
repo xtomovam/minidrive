@@ -61,7 +61,7 @@ const std::string download(const int &client_fd, const std::string &cmd) {
     return "Downloaded " + server_path + " to " + client_path;
 }
 
-void start_simple_server(std::uint16_t port) {
+void start_simple_server(const std::uint16_t &port, const std::string &root) {
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
         std::cerr << "Failed to set up listen socket on port " << port << std::endl;
@@ -111,7 +111,7 @@ void start_simple_server(std::uint16_t port) {
             }
 
             // create session
-            sessions.emplace(client_fd, std::make_unique<Session>(client_fd));
+            sessions.emplace(client_fd, std::make_unique<Session>(client_fd, root));
         }
 
         // existing client sent message -> read and process

@@ -18,4 +18,4 @@
 #include <unordered_map>
 #include <vector>
 
-void start_simple_server(std::uint16_t port);
+void start_simple_server(const std::uint16_t &port, const std::string &root);

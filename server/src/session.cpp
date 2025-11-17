@@ -4,8 +4,10 @@
 #include "flows/upload_flow.hpp"
 #include <iostream>
 
-Session::Session(const int &fd) : client_fd(fd) {}
+// constructor
+Session::Session(const int &fd, const std::string &root) : client_fd(fd), root(root), working_directory(root + "/public"), client_directory(root + "/public") {}
 
+// destructor
 Session::~Session() = default;
 
 // main message handler
@@ -79,16 +81,12 @@ void Session::leaveFlow() {
 
 // getters and setters
 
-Session::State Session::getState() const {
-    return this->state;
-}
-
-const std::string &Session::getClientUsername() const {
-    return this->client_username;
-}
-
 const int &Session::getClientFD() const {
     return this->client_fd;
+}
+
+const std::string &Session::getRoot() const {
+    return this->root;
 }
 
 const std::string &Session::getWorkingDirectory() const {
@@ -99,11 +97,37 @@ const std::string &Session::getClientDirectory() const {
     return this->client_directory;
 }
 
+const std::string &Session::getClientUsername() const {
+    return this->client_username;
+}
+
+
+Session::State Session::getState() const {
+    return this->state;
+}
+
 void Session::setClientDirectory(const std::string &path) {
     this->client_directory = path;
 }
 
 void Session::setWorkingDirectory(const std::string &path) {
+    namespace fs = std::filesystem;
+    
+    // ensure path is within client directory
+    fs::path abs_client_dir = fs::weakly_canonical(this->client_directory);
+    fs::path abs_path = fs::weakly_canonical(path);
+
+    if (!(std::mismatch(abs_client_dir.begin(), abs_client_dir.end(),abs_path.begin(), abs_path.end()).first == abs_client_dir.end())) {
+        throw std::runtime_error("access_denied: Cannot change directory outside of client directory (full path: " + path + ")");
+    }
+    if (!fs::exists(path)) {
+        throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
+    }
+    if (!fs::is_directory(path)) {
+        throw std::runtime_error("not_directory: Path is not a directory: " + path);
+    }
+    
+
     this->working_directory = path;
 }
 
@@ -175,21 +199,12 @@ void Session::changeDirectory(const std::string &path) {
     if (path.empty()) {
         throw std::runtime_error("no_path: CD command requires a path argument");
     }
-    if (path.find("..") != std::string::npos) {
-        throw std::runtime_error("invalid_path: Path cannot contain '..'");
-    }
+
     namespace fs = std::filesystem;
 
     std::string full_path = this->working_directory + "/" + path;
-    
-    if (!fs::exists(full_path)) {
-        throw std::runtime_error("directory_not_found: Directory does not exist: " + path);
-    }
-    if (!fs::is_directory(full_path)) {
-        throw std::runtime_error("not_directory: Path is not a directory: " + path);
-    }
 
-    this->working_directory = full_path;
+    this->setWorkingDirectory(full_path);
 
     send_msg(this->client_fd, "OK Changed directory to " + path);
 }

@@ -24,8 +24,8 @@ AuthenticateFlow::AuthenticateFlow(Session* s, const std::string &user) : Flow(s
 
 void AuthenticateFlow::success() {
     this->session->setClientUsername(this->username);
-    this->session->setClientDirectory("server/root/" + this->username);
-    this->session->setWorkingDirectory("server/root/" + this->username);
+    this->session->setClientDirectory(this->session->getRoot() + "/" + this->username);
+    this->session->setWorkingDirectory(this->session->getRoot() + "/" + this->username);
     this->session->leaveFlow();
 }
 
@@ -46,7 +46,7 @@ void AuthenticateFlow::onMessage(const std::string& msg) {
             register_user(this->username, msg);
             this->session->send("Registration successful.");
             
-            std::filesystem::create_directories("server/root/" + this->username);
+            std::filesystem::create_directories(this->session->getRoot() + "/" + this->username);
 
             this->success();
             break;
