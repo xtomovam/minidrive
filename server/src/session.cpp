@@ -192,12 +192,6 @@ void Session::list(const std::string path) {
 
     verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
     
-    // Debug output
-    std::cout << "DEBUG LIST: working_directory='" << this->working_directory << "'" << std::endl;
-    std::cout << "DEBUG LIST: path='" << path << "'" << std::endl;
-    std::cout << "DEBUG LIST: full_path='" << full_path << "'" << std::endl;
-    std::cout << "DEBUG LIST: exists=" << (fs::exists(full_path) ? "yes" : "no") << std::endl;
-    
     std::ostringstream out;
     size_t n = 0;
     for (const auto &entry : fs::directory_iterator(full_path)) {
@@ -213,10 +207,6 @@ void Session::list(const std::string path) {
 
         out << entry.path().filename().string();
         n++;
-    }
-
-    if (n == 0) {
-        out << "\n";
     }
 
     this->send(out.str());
