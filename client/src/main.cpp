@@ -60,28 +60,39 @@ void process_response(const std::string &response) {
 }
 
 void send_cmd(const int &fd, const std::string &cmd) {
-    send_msg(fd, cmd);
-    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
+    // upload case
+    if (is_cmd(cmd, "UPLOAD")) {
+        // send command with file size
+        std::string local_path = word_from(cmd, 7);
+        size_t file_size = static_cast<size_t>(std::filesystem::file_size(local_path));
+        send_msg(fd, "UPLOAD " + std::to_string(file_size) + cmd.substr(6));
 
-    // upload -> send file
-    if (is_cmd(cmd, "UPLOAD")) { 
+        // READY response -> send file
         std::string response = recv_msg(fd);
         if (response.starts_with("READY")) {
             send_file(fd, word_from(cmd, 7));
+            process_response(recv_msg(fd));
+            return;
         } else {
             process_response(response);
             return;
         }
+        
+    }
 
-    // download -> receive file
-    } else if (is_cmd(cmd, "DOWNLOAD")) {
+    // send command
+    send_msg(fd, cmd);
+    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
+
+    // download case
+    if (is_cmd(cmd, "DOWNLOAD")) {
         std::string local_path = "";
         if (cmd.size() > 10 && cmd.find(' ', 10) != std::string::npos) {
             local_path = word_from(cmd, cmd.find(' ', 10) + 1);
         } else {
             local_path = word_from(cmd, 9);
         }
-        recv_file(fd, local_path);
+        recv_file(fd, local_path, "", 0);
         std::cout << "OK\nFile downloaded successfully to " << local_path << std::flush;
         return;
     }

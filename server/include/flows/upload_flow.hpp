@@ -4,7 +4,7 @@
 
 class UploadFlow : public Flow {
 public:
-    UploadFlow(Session* s, const std::string local_path, const std::string remote_path);
+    UploadFlow(Session* s, const std::string local_path, const std::string remote_path, size_t filesize);
 
     void onMessage(const std::string& msg) override;
 

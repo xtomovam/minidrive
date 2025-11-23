@@ -1,6 +1,7 @@
 add_library(minidrive_shared STATIC
     src/helpers.cpp
     src/version.cpp
+    src/transfer_state.cpp
 )
 
 target_include_directories(minidrive_shared

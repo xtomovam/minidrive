@@ -12,6 +12,7 @@ Session::~Session() = default;
 
 // main message handler
 void Session::onMessage(const std::string &msg) {
+    std::vector<std::string> parts = split_cmd(msg);
     try {
         // expecting a file -> delegate to flow
         if (this->state == State::AwaitingFile) {
@@ -31,21 +32,21 @@ void Session::onMessage(const std::string &msg) {
 
         // simple commands
         if (is_cmd(msg, "LIST")) {
-            this->list(word_from(msg, 5));
+            this->list(parts[1]);
         } else if (is_cmd(msg, "DOWNLOAD")) {
-            this->downloadFile(word_from(msg, 9));
+            this->downloadFile(parts[1]);
         } else if (is_cmd(msg, "DELETE")) {
-            this->deleteFile(word_from(msg, 7));
+            this->deleteFile(parts[1]);
         } else if (is_cmd(msg, "CD")) {
-            this->changeDirectory(word_from(msg, 3));
+            this->changeDirectory(parts[1]);
         } else if (is_cmd(msg, "MKDIR")) {
-            this->makeDirectory(word_from(msg, 6));
+            this->makeDirectory(parts[1]);
         } else if (is_cmd(msg, "RMDIR")) {
-            this->removeDirectory(word_from(msg, 6));
+            this->removeDirectory(parts[1]);
         } else if (is_cmd(msg, "MOVE")) {
-            this->move(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
+            this->move(parts[1], parts[2]);
         } else if (is_cmd(msg, "COPY")) {
-            this->copy(word_from(msg, 5), msg.find(' ', 5) != std::string::npos ? word_from(msg, msg.find(' ', 5) + 1) : "");
+            this->copy(parts[1], parts[2]);
         } else if (is_cmd(msg, "EXIT")) {
             this->exit();
 
@@ -54,14 +55,14 @@ void Session::onMessage(const std::string &msg) {
             if (this->authenticated) {
                 throw std::runtime_error("permission_denied: Unable to re-authenticate");
             }
-            if (!word_from(msg, 5).empty()) {
-                this->current_flow = std::make_unique<AuthenticateFlow>(this, word_from(msg, 5));
+            if (!parts[1].empty()) {
+                this->current_flow = std::make_unique<AuthenticateFlow>(this, parts[1]);
             }
             this->authenticated = true;
         } else if (is_cmd(msg, "UPLOAD")) {
-            this->current_flow = std::make_unique<UploadFlow>(this, word_from(msg, 7), (msg.find(' ', 7) != std::string::npos ? word_from(msg, msg.find(' ', 7) + 1) : ""));
+            this->current_flow = std::make_unique<UploadFlow>(this, parts[2], parts[3], std::stoull(parts[1]));
         } else if (is_cmd(msg, "DOWNLOAD")) {
-            this->downloadFile(word_from(msg, 9));
+            this->downloadFile(parts[1]);
         } else {
             throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
@@ -127,7 +128,7 @@ void Session::send(const std::string &msg) const {
 
 void Session::receive_file(const std::string &filepath) const {
     this->verifyPath(filepath, VerifyType::File, VerifyExistence::MustNotExist);
-    recv_file(this->client_fd, filepath);
+    recv_file(this->client_fd, filepath, this->client_directory, 0);
 }
 
 void Session::setState(const State &new_state) {

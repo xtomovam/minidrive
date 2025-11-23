@@ -20,29 +20,65 @@ const std::string word_from(const std::string &str, const size_t &start) {
     return word;
 }
 
-const std::string recv_msg(const int &fd) {
-    std::string result;
-    char temp[TMP_BUFF_SIZE];
-    
-    // parse length
-    size_t pos = std::string::npos;
-    while (pos == std::string::npos) {
-        ssize_t recvd = ::recv(fd, temp, sizeof(temp), 0);
+const std::string nth_word(const std::string &str, const size_t &n) {
+    size_t count = 0;
+    size_t start = 0;
+    while (count < n && start < str.size()) {
+        size_t pos = str.find(' ', start);
+        if (pos == std::string::npos) {
+            return "";
+        }
+        start = pos + 1;
+        count++;
+    }
+    return word_from(str, start);
+}
+
+const std::vector<std::string> split_cmd(const std::string &cmd) {
+    std::vector<std::string> parts;
+    size_t start = 0;
+    while (start < cmd.size()) {
+        size_t pos = cmd.find(' ', start);
+        if (pos == std::string::npos) {
+            parts.push_back(cmd.substr(start));
+            break;
+        } else {
+            parts.push_back(cmd.substr(start, pos - start));
+            start = pos + 1;
+        }
+    }
+    return parts;
+}
+
+size_t receive_length_prefix(const int &fd) {
+    char c = '\0';
+    size_t length = 0;
+    while(true) {
+        ssize_t recvd = ::recv(fd, &c, 1, 0);
         if (recvd < 0) {
-            if (errno == EINTR) continue;
-            throw std::runtime_error("recv: Failed to receive message length");
+            throw std::runtime_error("recv: Failed to receive length");
         }
         if (recvd == 0) {
             throw std::runtime_error("connection_closed: Connection closed by remote node");
         }
-        result.append(temp, static_cast<size_t>(recvd));
-        pos = result.find(' ');
+        if (c == ' ') {
+            break;
+        }
+        length *= 10;
+        length += c - '0';
     }
-    size_t len = std::stoull(result.substr(0, result.find(' ')));
-    result.erase(0, result.find(' ') + 1);
+    return length;
+}
 
+const std::string recv_msg(const int &fd) {
+    std::string result;
+    
+    // receive message length
+    size_t len = receive_length_prefix(fd);
+    
     // receive full message
-    size_t remaining = len - result.size();
+    size_t remaining = len;
+    char temp[TMP_BUFF_SIZE];
     while (remaining > 0) {
         ssize_t recvd = ::recv(fd, temp, sizeof(temp), 0);
         if (recvd < 0) {
@@ -77,13 +113,13 @@ void send_msg(const int &fd, const std::string &msg) {
     //std::cout << "Sent message (" << total_size << " bytes)" << std::endl;
 }
 
-void recv_file(const int &fd, const std::string &filepath) {
+void recv_file(const int &fd, const std::string &filepath, const std::string &user_dir, const size_t offset) {
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;
 
     // open file for writing
-    if (fs::exists(filepath) && fs::is_regular_file(filepath)) {
+    if (offset == 0 && fs::exists(filepath) && fs::is_regular_file(filepath)) {
         err = "overwrite_error: File already exists"; // prevent overwriting existing files
     } else {
         // ensure parent directory exists
@@ -98,7 +134,7 @@ void recv_file(const int &fd, const std::string &filepath) {
         }
         
         if (err.empty()) {
-            outfile.open(filepath, std::ios::binary);
+            outfile.open(filepath, std::ios::binary | std::ios::app);
             if (!outfile) {
                 err = "file_open_failed: Failed to open file for writing (path: " + filepath + ")";
             }
@@ -106,38 +142,14 @@ void recv_file(const int &fd, const std::string &filepath) {
     }
 
     // receive file length
-    char temp[TMP_BUFF_SIZE];
-    std::string len_str;
-    size_t pos = std::string::npos;
-    while (pos == std::string::npos) {
-        ssize_t recvd = ::recv(fd, temp, sizeof(temp), 0);
-        if (recvd < 0) {
-            if (errno == EINTR) continue;
-            throw std::runtime_error("recv: Failed to receive file length");
-        }
-        if (recvd == 0) {
-            throw std::runtime_error("connection_closed: Connection closed by remote node");
-        }
-        len_str.append(temp, static_cast<size_t>(recvd));
-        pos = len_str.find(' ');
-    }
-    size_t file_size = std::stoull(len_str.substr(0, len_str.find(' ')));
-    len_str.erase(0, len_str.find(' ') + 1);
-    
-    // write any extra data already received into file
-    size_t remaining = file_size;
-    size_t len_str_size = len_str.size();
-    if (len_str_size > 0) {
-        if (err.empty()) {
-            outfile.write(len_str.c_str(), static_cast<std::streamsize>(len_str_size));
-            if (!outfile) {
-                throw std::runtime_error("file_write_failed: Failed to write to file");
-            }
-    }
-        remaining -= len_str_size;
-    }
+    size_t length = receive_length_prefix(fd);
+    size_t chunks = length / TMP_BUFF_SIZE + ((length % TMP_BUFF_SIZE) ? 1 : 0);
+    std::cout << "Receiving file of size " << length << " bytes (" << chunks << " chunks) to '" << filepath << "'\n";
 
     // receive file data
+    size_t remaining = length;
+    size_t chunks_received = 0;
+    char temp[TMP_BUFF_SIZE];
     while (remaining > 0) {
         ssize_t recvd = ::recv(fd, temp, (remaining < sizeof(temp)) ? remaining : sizeof(temp), 0);
         if (recvd < 0) {
@@ -148,12 +160,18 @@ void recv_file(const int &fd, const std::string &filepath) {
             throw std::runtime_error("connection_closed: Connection closed by remote node");
         }
         if (err.empty()) {
+            // write to file
             outfile.write(temp, static_cast<std::streamsize>(recvd));
             if (!outfile) {
                 throw std::runtime_error("file_write_failed: Failed to write to file");
             }
+            
+            // update transfer progress
+            size_t file_size = fs::file_size(filepath);
+            TransferState::updateProgress(user_dir, filepath, file_size);
         }
         remaining -= static_cast<size_t>(recvd);
+        chunks_received++;
     }
 
     if (!err.empty()) {
