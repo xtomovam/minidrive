@@ -1,34 +1,28 @@
 #include "flows/upload_flow.hpp"
-
-UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::string remote_path, size_t filesize) : Flow(s), remote_path(remote_path) {
-    // already an active transfer -> resume
-    std::vector<TransferState::Transfer> active_transfers = TransferState::getActiveTransfers(this->session->getClientDirectory());
-    for (const auto& transfer : active_transfers) {
-        if (transfer.filepath == (remote_path.empty() ? local_path.substr(local_path.find_last_of("/\\") + 1) : remote_path)) {
-            this->session->setState(Session::State::AwaitingFile);
-            this->session->send("READY");
-            return;
-        }
-    }
+UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::string remote_path, const size_t &filesize) : Flow(s), remote_path(remote_path) {
+    this->filesize = filesize;
+    this->bytes_remaining = filesize;
 
     // validate paths
     if (local_path.empty()) {
         throw std::runtime_error("no_path: UPLOAD command requires a path argument");
     }
+    this->local_path = local_path;
     if (remote_path.empty()) {
         this->remote_path = local_path.substr(local_path.find_last_of("/\\") + 1);
+    } else {
+        this->remote_path = remote_path;
     }
-    this->full_remote_path = this->session->getWorkingDirectory() + "/" + this->remote_path;
-    this->session->verifyPath(this->full_remote_path, Session::VerifyType::None, Session::VerifyExistence::MustNotExist);
+    this->remote_path = this->session->getWorkingDirectory() + "/" + this->remote_path;
+    this->session->verifyPath(this->remote_path, Session::VerifyType::None, Session::VerifyExistence::MustNotExist);
 
     // add transfer state
     TransferState::Transfer transfer;
-    transfer.type = TransferState::UPLOAD;
-    transfer.filepath = this->remote_path;
+    transfer.local_path = local_path;
+    transfer.remote_path = this->remote_path;
     transfer.bytes_completed = 0;
     transfer.total_bytes = filesize;
     transfer.timestamp = std::to_string(std::time(nullptr));
-    transfer.local_path = local_path;
     TransferState::addTransfer(this->session->getClientDirectory(), transfer);
 
     // prepare to receive file
@@ -39,18 +33,18 @@ UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::stri
 void UploadFlow::onMessage(const std::string& msg) {
     (void)msg;
 
-    // get already received bytes
-    std::vector<TransferState::Transfer> active_transfers = TransferState::getActiveTransfers(this->session->getClientDirectory());
-    size_t offset = 0;
-    for (const auto& transfer : active_transfers) {
-        if (transfer.filepath == this->remote_path) {
-            offset = transfer.bytes_completed;
-            break;;
-        }
-    }
-       
-    recv_file(this->session->getClientFD(), this->full_remote_path, this->session->getClientDirectory(), offset);
+    // receive file chunk
+    size_t to_receive = this->bytes_remaining < TMP_BUFF_SIZE ? this->bytes_remaining : TMP_BUFF_SIZE;
+    size_t offset = this->filesize - this->bytes_remaining;
+    this->bytes_remaining -= recv_file_chunk(this->session->getClientFD(), this->remote_path, offset, to_receive);
 
-    this->session->send("File uploaded successfully to " + this->remote_path);
-    this->session->leaveFlow();
+    // update transfer state
+    size_t file_size = this->filesize - this->bytes_remaining;
+    TransferState::updateProgress(this->session->getClientDirectory(), this->remote_path, file_size);
+
+    if (this->bytes_remaining == 0) { // file received -> leave flow
+        TransferState::removeTransfer(this->session->getClientDirectory(), this->remote_path); // remove transfer state
+        this->session->send("File uploaded successfully to " + this->remote_path);
+        this->session->leaveFlow();
+    }
 }

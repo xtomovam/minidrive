@@ -14,6 +14,7 @@
 #include <sstream>
 #include <fstream>
 #include <filesystem>
+#include <vector>
 
 struct HostPort {
     std::string host;
@@ -59,18 +60,20 @@ void process_response(const std::string &response) {
     }
 }
 
-void send_cmd(const int &fd, const std::string &cmd) {
+void send_cmd(const int &fd, const std::string &cmd, const size_t &offset = 0) {
     // upload case
     if (is_cmd(cmd, "UPLOAD")) {
+        std::vector<std::string> parts = split_cmd(cmd);
+
         // send command with file size
-        std::string local_path = word_from(cmd, 7);
+        std::string local_path = parts[1];
         size_t file_size = static_cast<size_t>(std::filesystem::file_size(local_path));
         send_msg(fd, "UPLOAD " + std::to_string(file_size) + cmd.substr(6));
 
         // READY response -> send file
         std::string response = recv_msg(fd);
         if (response.starts_with("READY")) {
-            send_file(fd, word_from(cmd, 7));
+            send_file(fd, local_path, 0);
             process_response(recv_msg(fd));
             return;
         } else {
@@ -98,6 +101,30 @@ void send_cmd(const int &fd, const std::string &cmd) {
     }
 
     process_response(recv_msg(fd));
+}
+
+void resume(const int &fd) {
+    std::cout << "Checking for incomplete uploads/downloads...\n" << std::flush;
+    std::string cmd = recv_msg(fd);
+    std::cout << "Received resume command: " << cmd << "\n" << std::flush;
+    if (!is_cmd(cmd, "RESUME")) {
+        throw std::runtime_error("unknown_response: Expected RESUME command, got " + cmd);
+    }
+    std::vector<std::string> parts = split_cmd(cmd);
+    if (parts.size() >= 3) {
+        std::cout << "Incomplete upload/downloads detected, resume? (y/n):\n> " << std::flush;
+        std::string answer;
+        std::getline(std::cin, answer);
+        send_msg(fd, answer);
+        if (answer == "y") {
+            std::cout << "resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
+            size_t offset = std::stoull(parts[3]);
+            send_file(fd, parts[1], offset);
+            std::cout << "OK\n" << recv_msg(fd) << std::endl;
+        }
+    } else {
+        std::cout << "No incomplete uploads/downloads detected.\n" << std::flush;
+    }
 }
 
 void authenticate(const int &fd, const std::string &user) {
@@ -251,6 +278,7 @@ int main(int argc, char* argv[]) {
 
     try {
         authenticate(fd, user);
+        resume(fd);
         main_loop(fd, Mode::Remote);
     } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;

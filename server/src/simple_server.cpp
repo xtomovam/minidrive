@@ -72,8 +72,9 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
     std::unordered_map<int, std::unique_ptr<Session>> sessions;
 
     // main server loop
+    std::vector<int> toClose;
     while (true) {
-        std::vector<int> toClose;
+        toClose.clear();
         
         // add all client fds to set
         fd_set readfds;
@@ -114,7 +115,6 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
             // create session
             sessions.emplace(client_fd,
                 std::make_unique<Session>(client_fd, root, [&](int fd){
-                    std::cout << "Closing session for client fd=" << fd << std::endl;
                     toClose.push_back(fd);
                 })
             );

@@ -37,6 +37,8 @@ public:
     void setState(const State &new_state);
     void enterFlow(Flow* flow);
     void leaveFlow();
+    
+    void resume();
 
     // getters and setters
     const int &getClientFD() const;
@@ -53,8 +55,8 @@ private:
     const int client_fd;
     const std::string root;
     std::function<void(int)> close_callback;
-    std::string working_directory = "";
-    std::string client_directory = "";
+    std::string working_directory = "public";
+    std::string client_directory = "public";
     std::string client_username = "";
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;

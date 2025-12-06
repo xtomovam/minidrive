@@ -9,7 +9,6 @@
             "includePath": [
                 "${workspaceFolder}/shared/include",
                 "${workspaceFolder}/server/include",
-                "${workspaceFolder}/client/include",
                 "${workspaceFolder}/build/_deps/libsodium-src/libsodium/src/libsodium/include",
                 "${workspaceFolder}/build/_deps/nlohmann_json-src/include"
             ],

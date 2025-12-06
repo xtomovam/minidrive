@@ -1,15 +1,21 @@
 #include "minidrive/transfer_state.hpp"
-
+#include <iostream>
 void TransferState::addTransfer(const std::string& user_dir, const Transfer& transfer) {
     // add transfer to .transfers_state file in user_dir
     std::ofstream outfile(user_dir + "/.transfers_state", std::ios::binary);
     if (!outfile) {
         throw std::runtime_error("file_open_failed: Failed to open transfers state file for writing");
     }
-    outfile << transfer.type << ":" << transfer.filepath << ":" << transfer.bytes_completed << ":" << transfer.total_bytes << ":" << transfer.timestamp << ":" << transfer.local_path << "\n";
+    outfile << transfer.local_path << ":" << transfer.remote_path << ":" << transfer.bytes_completed << ":" << transfer.total_bytes << ":" << transfer.timestamp << "\n";
+    
+    // create timer for removing transfer after TRANSFER_TIMEOUT_MINUTES minutes
+    std::thread([user_dir, transfer]() {
+        std::this_thread::sleep_for(std::chrono::minutes(TRANSFER_TIMEOUT_MINUTES));
+        TransferState::removeTransfer(user_dir, transfer.local_path);
+    }).detach();
 }
 
-void TransferState::updateProgress(const std::string& user_dir, const std::string& filename, size_t bytes) {
+void TransferState::updateProgress(const std::string& user_dir, const std::string& remote_path, size_t bytes) {
     // open .transfers_state file
     const std::string path = user_dir + "/.transfers_state";
     std::ifstream infile(path, std::ios::binary);
@@ -25,14 +31,19 @@ void TransferState::updateProgress(const std::string& user_dir, const std::strin
         size_t pos1 = line.find(':');
         size_t pos2 = (pos1 == std::string::npos) ? std::string::npos : line.find(':', pos1 + 1);
         if (pos1 == std::string::npos || pos2 == std::string::npos) {
-            lines.push_back(line);
-            continue;
+            continue; // ignore malformed line (and remove it)
         }
-        std::string file = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        if (file == filename) {
+        std::string path = line.substr(pos1 + 1, pos2 - pos1 - 1);
+        std::cout << "Checking transfer line: " << line << std::endl;
+        std::cout << "Extracted file path: " << path << std::endl;
+        std::cout << "Comparing with remote_path: " << remote_path << std::endl;
+        if (path == remote_path) {
+            std::cout << "Found matching transfer line: " << line << std::endl;
             size_t pos3 = line.find(':', pos2 + 1);
             if (pos3 != std::string::npos) {
+                std::cout << "before: " << line << std::endl;
                 line.replace(pos2 + 1, pos3 - pos2 - 1, std::to_string(bytes));
+                std::cout << "after: " << line << std::endl;
                 updated = true;
             }
         }
@@ -54,7 +65,7 @@ void TransferState::updateProgress(const std::string& user_dir, const std::strin
     }
 }
 
-void TransferState::removeTransfer(const std::string& user_dir, const std::string& filename) {
+void TransferState::removeTransfer(const std::string& user_dir, const std::string& local_path) {
     // open .transfers_state file
     const std::string path = user_dir + "/.transfers_state";
     std::ifstream infile(path, std::ios::binary);
@@ -73,7 +84,7 @@ void TransferState::removeTransfer(const std::string& user_dir, const std::strin
             continue;
         }
         std::string file = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        if (file != filename) {
+        if (file != local_path) {
             lines.push_back(line);
         }
     }
@@ -91,11 +102,13 @@ void TransferState::removeTransfer(const std::string& user_dir, const std::strin
 
 std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std::string& user_dir) {
     std::vector<Transfer> transfers;
+    std::cout << "Getting active transfers for user directory: " << user_dir << std::endl;
 
     // open .transfers_state file
     const std::string path = user_dir + "/.transfers_state";
     std::ifstream infile(path, std::ios::binary);
     if (!infile) {
+        std::cout << "No transfers state file found at: " << path << std::endl;
         // no transfers state file -> no active transfers
         return transfers;
     }
@@ -107,21 +120,72 @@ std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std
         size_t pos2 = (pos1 == std::string::npos) ? std::string::npos : line.find(':', pos1 + 1);
         size_t pos3 = (pos2 == std::string::npos) ? std::string::npos : line.find(':', pos2 + 1);
         size_t pos4 = (pos3 == std::string::npos) ? std::string::npos : line.find(':', pos3 + 1);
-        size_t pos5 = (pos4 == std::string::npos) ? std::string::npos : line.find(':', pos4 + 1);
-        if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos || pos5 == std::string::npos) {
+        if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos) {
+            std::cout << "Malformed line in transfers state file: " << line << std::endl;
             continue; // malformed line
         }
 
         Transfer transfer;
-        transfer.type = static_cast<Type>(std::stoi(line.substr(0, pos1)));
-        transfer.filepath = line.substr(pos1 + 1, pos2 - pos1 - 1);
+        transfer.local_path = line.substr(0, pos1);
+        transfer.remote_path = line.substr(pos1 + 1, pos2 - pos1 - 1);
         transfer.bytes_completed = static_cast<size_t>(std::stoull(line.substr(pos2 + 1, pos3 - pos2 - 1)));
         transfer.total_bytes = static_cast<size_t>(std::stoull(line.substr(pos3 + 1, pos4 - pos3 - 1)));
-        transfer.timestamp = line.substr(pos4 + 1, pos5 - pos4 - 1);
-        transfer.local_path = line.substr(pos5 + 1);
+        transfer.timestamp = line.substr(pos4 + 1);
 
         transfers.push_back(transfer);
     }
 
     return transfers;
+}
+
+void TransferState::clearTransfers(const std::string& user_dir) {
+    const std::string path = user_dir + "/.transfers_state";
+    std::cout << "Clearing transfers for user directory: " << user_dir << std::endl;
+
+    // read existing lines
+    std::ifstream infile(path, std::ios::binary);
+    if (!infile) {
+        std::cout << "No transfers state file found at: " << path << std::endl;
+        return; // no file -> nothing to clear
+    }
+
+    std::cout << "Opened transfers state file: " << path << std::endl;
+    std::string line;
+    std::vector<std::string> keep;
+    const std::time_t now = std::time(nullptr);
+    const std::time_t timeout_sec = static_cast<std::time_t>(TRANSFER_TIMEOUT_MINUTES) * 60;
+
+    while (std::getline(infile, line)) {
+        size_t pos1 = line.find(':');
+        size_t pos2 = (pos1 == std::string::npos) ? std::string::npos : line.find(':', pos1 + 1);
+        size_t pos3 = (pos2 == std::string::npos) ? std::string::npos : line.find(':', pos2 + 1);
+        size_t pos4 = (pos3 == std::string::npos) ? std::string::npos : line.find(':', pos3 + 1);
+        if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos) {
+            std::cout << "Malformed line in transfers state file: " << line << std::endl;
+            continue;
+        }
+
+        std::string timestamp_str = line.substr(pos4 + 1);
+        try {
+            unsigned long long ts = std::stoull(timestamp_str);
+            // keep if not older than timeout
+            if (static_cast<std::time_t>(ts) + timeout_sec > now) {
+                keep.push_back(line);
+            }
+        } catch (const std::exception& e) {
+            // on parse error keep the line
+            std::cout << "Failed to parse timestamp: " << timestamp_str << " (" << e.what() << ")" << std::endl;
+            keep.push_back(line);
+        }
+    }
+    infile.close();
+
+    // rewrite .transfers_state file with kept lines
+    std::ofstream outfile(path, std::ios::binary | std::ios::trunc);
+    if (!outfile) {
+        throw std::runtime_error("file_open_failed: Failed to open transfers state file for writing");
+    }
+    for (const auto& l : keep) {
+        outfile << l << "\n";
+    }
 }

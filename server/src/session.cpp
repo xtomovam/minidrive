@@ -2,6 +2,7 @@
 #include "flows/flow.hpp"
 #include "flows/authenticate_flow.hpp"
 #include "flows/upload_flow.hpp"
+#include "flows/upload_resume_flow.hpp"
 #include <iostream>
 
 // constructor
@@ -13,17 +14,10 @@ Session::~Session() = default;
 // main message handler
 void Session::onMessage(const std::string &msg) {
     std::vector<std::string> parts = split_cmd(msg);
+    while (parts.size() < 5) {
+        parts.push_back("");
+    }
     try {
-        // expecting a file -> delegate to flow
-        if (this->state == State::AwaitingFile) {
-            if (this->current_flow) {
-                this->current_flow->onMessage(msg);
-                return;
-            } else {
-                throw std::runtime_error("no_flow: No active flow to receive file");
-            }
-        }
-
         // in a flow -> delegate to flow
         if (this->current_flow) {
             this->current_flow->onMessage(msg);
@@ -58,6 +52,8 @@ void Session::onMessage(const std::string &msg) {
             if (!parts[1].empty()) {
                 this->current_flow = std::make_unique<AuthenticateFlow>(this, parts[1]);
             }
+            // TEMPORARY: only for public mode
+            this->resume();
             this->authenticated = true;
         } else if (is_cmd(msg, "UPLOAD")) {
             this->current_flow = std::make_unique<UploadFlow>(this, parts[2], parts[3], std::stoull(parts[1]));
@@ -135,10 +131,6 @@ void Session::setState(const State &new_state) {
     this->state = new_state;
 }
 
-void Session::enterFlow(Flow* flow) {
-    this->current_flow.reset(flow);
-}
-
 void Session::leaveFlow() {
     this->current_flow.reset();
     this->state = State::AwaitingMessage;
@@ -165,7 +157,6 @@ const std::string &Session::getClientDirectory() const {
 const std::string &Session::getClientUsername() const {
     return this->client_username;
 }
-
 
 Session::State Session::getState() const {
     return this->state;
@@ -318,4 +309,26 @@ void Session::copy(const std::string &source, const std::string &destination) {
     fs::copy(full_source_path, full_destination_path, fs::copy_options::recursive);
 
     this->send("Copied " + source + " to " + destination);
+}
+
+void Session::resume() {
+    // check for active transfers to resume
+    std::cout << "Checking for active transfers to resume\n";
+    TransferState::clearTransfers(this->getClientDirectory());
+    std::cout << "Cleared transfers\n";
+    std::vector<TransferState::Transfer> transfers = TransferState::getActiveTransfers(this->getClientDirectory());
+    std::cout << "Active transfers: " << transfers.size() << std::endl;
+
+    if (!transfers.empty()) {
+        std::cout << "Found active transfer to resume" << std::endl;
+        std::string full_remote_path = transfers[0].remote_path;
+        size_t offset = transfers[0].bytes_completed;
+        this->current_flow = std::make_unique<UploadResumeFlow>(this, full_remote_path, offset);
+        std::cout << "Prepared to resume upload of " << full_remote_path << " at offset " << offset << std::endl;
+        this->send("RESUME " + transfers[0].local_path +  " " + transfers[0].remote_path + " " + std::to_string(transfers[0].bytes_completed));
+    } else {
+        std::cout << "No active transfers found" << std::endl;
+        this->send("RESUME");
+        std::cout << "No transfers to resume" << std::endl;
+    }
 }

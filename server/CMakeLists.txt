@@ -6,6 +6,7 @@ add_executable(minidrive_server
     src/flows/authenticate_flow.cpp
     src/flows/upload_flow.cpp
     src/access_control.cpp
+    src/flows/upload_resume_flow.cpp
 )
 
 target_include_directories(minidrive_server

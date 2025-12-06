@@ -80,7 +80,7 @@ const std::string recv_msg(const int &fd) {
     size_t remaining = len;
     char temp[TMP_BUFF_SIZE];
     while (remaining > 0) {
-        ssize_t recvd = ::recv(fd, temp, sizeof(temp), 0);
+        ssize_t recvd = ::recv(fd, temp, (remaining < sizeof(temp)) ? remaining : sizeof(temp), 0);
         if (recvd < 0) {
             if (errno == EINTR) continue;
             throw std::runtime_error("recv: Failed to receive message");
@@ -91,6 +91,7 @@ const std::string recv_msg(const int &fd) {
         result.append(temp, static_cast<size_t>(recvd));
         remaining -= static_cast<size_t>(recvd);
     }
+    std::cout << "Received message (" << result.size() << " bytes): " << result << std::endl;
     return result;
 }
 
@@ -110,16 +111,65 @@ void send_msg(const int &fd, const std::string &msg) {
         }
         total_sent += sent;
     }
-    //std::cout << "Sent message (" << total_size << " bytes)" << std::endl;
 }
 
-void recv_file(const int &fd, const std::string &filepath, const std::string &user_dir, const size_t offset) {
+size_t recv_file_chunk(const int &fd, const std::string &path, const size_t &offset, const size_t &chunk_size) {
+    namespace fs = std::filesystem;
+    ssize_t total_received = 0;
+
+    if (chunk_size > TMP_BUFF_SIZE) {
+        throw std::runtime_error("invalid_argument: chunk_size exceeds TMP_BUFF_SIZE");
+    }
+
+    // receive chunk
+    char temp[TMP_BUFF_SIZE];
+    ssize_t recvd = ::recv(fd, temp, chunk_size, 0);
+    if (recvd < 0) {
+        throw std::runtime_error("recv: Failed to receive file chunk");
+    }
+    if (recvd == 0) {
+        throw std::runtime_error("connection_closed: Connection closed by remote node");
+    }
+
+    // open file for writing (create if not exists)
+    std::ofstream outfile;
+    if (!fs::exists(path)) {
+        // ensure parent directory exists
+        fs::path file_path(path);
+        fs::path parent_dir = file_path.parent_path();
+        if (!parent_dir.empty() && !fs::exists(parent_dir)) {
+            fs::create_directories(parent_dir);
+        }
+        outfile.open(path, std::ios::binary);
+    } else {
+        outfile.open(path, std::ios::binary | std::ios::in | std::ios::out);
+    }
+    if (!outfile) {
+        throw std::runtime_error("file_open_failed: Failed to open file for writing (path: " + path + ")");
+    }
+
+    // seek to offset
+    outfile.seekp(static_cast<std::streamoff>(offset));
+    if (!outfile) {
+        throw std::runtime_error("file_seek_failed: Failed to seek to offset in file (path: " + path + ")");
+    }
+
+    // write chunk to file
+    outfile.write(temp, recvd);
+    if (!outfile) {
+        throw std::runtime_error("file_write_failed: Failed to write to file (path: " + path + ")"); 
+    }
+
+    return static_cast<size_t>(recvd);
+}
+
+void recv_file(const int &fd, const std::string &filepath, const std::string &user_dir, const size_t offset, const bool &resume) {
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;
 
     // open file for writing
-    if (offset == 0 && fs::exists(filepath) && fs::is_regular_file(filepath)) {
+    if (!resume && fs::exists(filepath) && fs::is_regular_file(filepath)) {
         err = "overwrite_error: File already exists"; // prevent overwriting existing files
     } else {
         // ensure parent directory exists
@@ -179,20 +229,11 @@ void recv_file(const int &fd, const std::string &filepath, const std::string &us
     }
 }
 
-void send_file(const int &fd, const std::string &filepath) {
+void send_file(const int &fd, const std::string &filepath, size_t offset) {
     // open file
     std::ifstream infile(filepath, std::ios::binary);
     if (!infile) {
         throw std::runtime_error("file_open_failed: Failed to open file for reading (path: " + filepath + ")");
-    }
-
-    // send file size
-    infile.seekg(0, std::ios::end);
-    size_t file_size = static_cast<size_t>(infile.tellg());
-    infile.seekg(0, std::ios::beg);
-    ssize_t sent = ::send(fd, (std::to_string(file_size) + ' ').c_str(), (std::to_string(file_size) + ' ').size(), 0);
-    if (sent < 0) {
-        throw std::runtime_error("send_failed: Failed to send file size");
     }
 
     // send file data
