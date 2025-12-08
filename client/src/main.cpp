@@ -120,7 +120,9 @@ void resume(const int &fd) {
             std::cout << "resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
             size_t offset = std::stoull(parts[3]);
             send_file(fd, parts[1], offset);
+            std::cout << "file sent successfully.\nWaiting for server confirmation...\n" << std::flush;
             std::cout << "OK\n" << recv_msg(fd) << std::endl;
+            std::cout << "next msg: " << recv_msg(fd) << std::endl;
         }
     } else {
         std::cout << "No incomplete uploads/downloads detected.\n" << std::flush;

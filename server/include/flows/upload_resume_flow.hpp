@@ -6,7 +6,7 @@
 
 class UploadResumeFlow : public Flow {
 public:
-    UploadResumeFlow(Session* s, const std::string& full_remote_path, size_t offset);
+    UploadResumeFlow(Session* s, const std::string& full_remote_path, const size_t & filesize, const size_t &offset);
 
     void onMessage(const std::string& msg) override;
 

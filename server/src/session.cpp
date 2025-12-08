@@ -1,6 +1,6 @@
 #include "session.hpp"
 #include "flows/flow.hpp"
-#include "flows/authenticate_flow.hpp"
+#include "access_control.hpp"
 #include "flows/upload_flow.hpp"
 #include "flows/upload_resume_flow.hpp"
 #include <iostream>
@@ -18,6 +18,17 @@ void Session::onMessage(const std::string &msg) {
         parts.push_back("");
     }
     try {
+        if (this->state == State::AwaitingRegistrationChoice) {
+            this->processRegisterChoice(msg);
+            return;
+        } else if (this->state == State::AwaitingRegistrationPassword) {
+            this->registerUser(msg);
+            return;
+        } else if (this->state == State::AwaitingPassword) {
+            this->authenticateUser(msg);
+            return;
+        }
+
         // in a flow -> delegate to flow
         if (this->current_flow) {
             this->current_flow->onMessage(msg);
@@ -46,15 +57,7 @@ void Session::onMessage(const std::string &msg) {
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
-            if (this->authenticated) {
-                throw std::runtime_error("permission_denied: Unable to re-authenticate");
-            }
-            if (!parts[1].empty()) {
-                this->current_flow = std::make_unique<AuthenticateFlow>(this, parts[1]);
-            }
-            // TEMPORARY: only for public mode
-            this->resume();
-            this->authenticated = true;
+            this->auth(parts[1]);
         } else if (is_cmd(msg, "UPLOAD")) {
             this->current_flow = std::make_unique<UploadFlow>(this, parts[2], parts[3], std::stoull(parts[1]));
         } else if (is_cmd(msg, "DOWNLOAD")) {
@@ -323,12 +326,66 @@ void Session::resume() {
         std::cout << "Found active transfer to resume" << std::endl;
         std::string full_remote_path = transfers[0].remote_path;
         size_t offset = transfers[0].bytes_completed;
-        this->current_flow = std::make_unique<UploadResumeFlow>(this, full_remote_path, offset);
+        size_t file_size = transfers[0].total_bytes;
+        this->current_flow = std::make_unique<UploadResumeFlow>(this, full_remote_path, file_size, offset);
         std::cout << "Prepared to resume upload of " << full_remote_path << " at offset " << offset << std::endl;
         this->send("RESUME " + transfers[0].local_path +  " " + transfers[0].remote_path + " " + std::to_string(transfers[0].bytes_completed));
     } else {
         std::cout << "No active transfers found" << std::endl;
         this->send("RESUME");
         std::cout << "No transfers to resume" << std::endl;
+    }
+}
+
+void Session::auth(const std::string &username) {
+    // no re-authentication allowed
+    if (this->auth_initiated) {
+        throw std::runtime_error("permission_denied: Unable to re-authenticate");
+    }
+    this->auth_initiated = true;
+
+    // set username
+    this->client_username = username;
+    
+    if (!username.empty()) {
+        // non-existent user -> prompt for registration
+        if (!exists_user(username)) {
+            this->send("User " + username + " not found. Register? (y/n)");
+            this->state = State::AwaitingRegistrationChoice; // implement register()
+            
+        } else {
+            // existing user -> ask for password
+            this->state = State::AwaitingPassword;
+        }
+        
+        // no username -> public mode
+    } else {
+        this->resume();
+    }
+}
+
+void Session::processRegisterChoice(std::string choice) {
+    if (choice == "y") { // yes -> ask for password
+        this->send("Password for " + this->client_username + ":");
+        this->state = State::AwaitingRegistrationPassword;
+    } else { // no -> cancel flow
+        this->send("Registration cancelled.");
+    }
+}
+
+void Session::registerUser(std::string password) {
+    // register user
+    register_user(this->client_username, password);
+    this->send("User " + this->client_username + " registered successfully.");
+    this->exit();
+}
+
+void Session::authenticateUser(std::string password) {
+    // authenticate user
+    if (authenticate_user(this->client_username, password)) {
+        this->send("Logged as " + this->client_username + ".");
+        this->resume(); // proceed to resume uploads
+    } else {
+        throw std::runtime_error("authentication_failed: Incorrect password for user " + this->client_username);
     }
 }

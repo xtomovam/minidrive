@@ -34,16 +34,10 @@ void TransferState::updateProgress(const std::string& user_dir, const std::strin
             continue; // ignore malformed line (and remove it)
         }
         std::string path = line.substr(pos1 + 1, pos2 - pos1 - 1);
-        std::cout << "Checking transfer line: " << line << std::endl;
-        std::cout << "Extracted file path: " << path << std::endl;
-        std::cout << "Comparing with remote_path: " << remote_path << std::endl;
         if (path == remote_path) {
-            std::cout << "Found matching transfer line: " << line << std::endl;
             size_t pos3 = line.find(':', pos2 + 1);
             if (pos3 != std::string::npos) {
-                std::cout << "before: " << line << std::endl;
                 line.replace(pos2 + 1, pos3 - pos2 - 1, std::to_string(bytes));
-                std::cout << "after: " << line << std::endl;
                 updated = true;
             }
         }
@@ -102,13 +96,11 @@ void TransferState::removeTransfer(const std::string& user_dir, const std::strin
 
 std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std::string& user_dir) {
     std::vector<Transfer> transfers;
-    std::cout << "Getting active transfers for user directory: " << user_dir << std::endl;
 
     // open .transfers_state file
     const std::string path = user_dir + "/.transfers_state";
     std::ifstream infile(path, std::ios::binary);
     if (!infile) {
-        std::cout << "No transfers state file found at: " << path << std::endl;
         // no transfers state file -> no active transfers
         return transfers;
     }
@@ -121,7 +113,6 @@ std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std
         size_t pos3 = (pos2 == std::string::npos) ? std::string::npos : line.find(':', pos2 + 1);
         size_t pos4 = (pos3 == std::string::npos) ? std::string::npos : line.find(':', pos3 + 1);
         if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos) {
-            std::cout << "Malformed line in transfers state file: " << line << std::endl;
             continue; // malformed line
         }
 
@@ -129,7 +120,9 @@ std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std
         transfer.local_path = line.substr(0, pos1);
         transfer.remote_path = line.substr(pos1 + 1, pos2 - pos1 - 1);
         transfer.bytes_completed = static_cast<size_t>(std::stoull(line.substr(pos2 + 1, pos3 - pos2 - 1)));
+        std::cout << "Parsed bytes_completed: " << transfer.bytes_completed << std::endl;
         transfer.total_bytes = static_cast<size_t>(std::stoull(line.substr(pos3 + 1, pos4 - pos3 - 1)));
+        std::cout << "Parsed total_bytes: " << transfer.total_bytes << std::endl;
         transfer.timestamp = line.substr(pos4 + 1);
 
         transfers.push_back(transfer);
@@ -140,16 +133,13 @@ std::vector<TransferState::Transfer> TransferState::getActiveTransfers(const std
 
 void TransferState::clearTransfers(const std::string& user_dir) {
     const std::string path = user_dir + "/.transfers_state";
-    std::cout << "Clearing transfers for user directory: " << user_dir << std::endl;
 
     // read existing lines
     std::ifstream infile(path, std::ios::binary);
     if (!infile) {
-        std::cout << "No transfers state file found at: " << path << std::endl;
         return; // no file -> nothing to clear
     }
 
-    std::cout << "Opened transfers state file: " << path << std::endl;
     std::string line;
     std::vector<std::string> keep;
     const std::time_t now = std::time(nullptr);
@@ -161,7 +151,6 @@ void TransferState::clearTransfers(const std::string& user_dir) {
         size_t pos3 = (pos2 == std::string::npos) ? std::string::npos : line.find(':', pos2 + 1);
         size_t pos4 = (pos3 == std::string::npos) ? std::string::npos : line.find(':', pos3 + 1);
         if (pos1 == std::string::npos || pos2 == std::string::npos || pos3 == std::string::npos || pos4 == std::string::npos) {
-            std::cout << "Malformed line in transfers state file: " << line << std::endl;
             continue;
         }
 
@@ -174,7 +163,6 @@ void TransferState::clearTransfers(const std::string& user_dir) {
             }
         } catch (const std::exception& e) {
             // on parse error keep the line
-            std::cout << "Failed to parse timestamp: " << timestamp_str << " (" << e.what() << ")" << std::endl;
             keep.push_back(line);
         }
     }

@@ -11,6 +11,9 @@ class Session {
 public:
     enum class State {
         AwaitingMessage,
+        AwaitingRegistrationChoice,
+        AwaitingRegistrationPassword,
+        AwaitingPassword,
         AwaitingFile
     };
     enum class VerifyType {
@@ -35,9 +38,12 @@ public:
     void send(const std::string &msg) const;
     void receive_file(const std::string &filepath) const;
     void setState(const State &new_state);
-    void enterFlow(Flow* flow);
     void leaveFlow();
     
+    void auth(const std::string &username);
+    void processRegisterChoice(std::string choice);
+    void registerUser(std::string password);
+    void authenticateUser(std::string password);
     void resume();
 
     // getters and setters
@@ -60,7 +66,7 @@ private:
     std::string client_username = "";
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
-    bool authenticated = false;
+    bool auth_initiated = false;
 
     void list(const std::string path);
     void downloadFile(const std::string &path);

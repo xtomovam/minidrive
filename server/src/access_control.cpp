@@ -69,7 +69,7 @@ void register_user(const std::string &user, const std::string &password) {
     save_users("server/root", users);
 }
 
-bool verify(const std::string &user, const std::string &password) {
+bool authenticate_user(const std::string &user, const std::string &password) {
     nlohmann::json users = load_users("server/root");
     if (!users.contains(user)) {
         return false;

@@ -91,7 +91,6 @@ const std::string recv_msg(const int &fd) {
         result.append(temp, static_cast<size_t>(recvd));
         remaining -= static_cast<size_t>(recvd);
     }
-    std::cout << "Received message (" << result.size() << " bytes): " << result << std::endl;
     return result;
 }
 
@@ -194,7 +193,6 @@ void recv_file(const int &fd, const std::string &filepath, const std::string &us
     // receive file length
     size_t length = receive_length_prefix(fd);
     size_t chunks = length / TMP_BUFF_SIZE + ((length % TMP_BUFF_SIZE) ? 1 : 0);
-    std::cout << "Receiving file of size " << length << " bytes (" << chunks << " chunks) to '" << filepath << "'\n";
 
     // receive file data
     size_t remaining = length;
@@ -236,18 +234,39 @@ void send_file(const int &fd, const std::string &filepath, size_t offset) {
         throw std::runtime_error("file_open_failed: Failed to open file for reading (path: " + filepath + ")");
     }
 
+    // seek to offset
+    infile.seekg(static_cast<std::streamoff>(offset));
+    if (!infile) {
+        throw std::runtime_error("file_seek_failed: Failed to seek to offset in file (path: " + filepath + ")");
+    }
+
     // send file data
     char temp[TMP_BUFF_SIZE];
-    while (true) {
+    ssize_t total_sent = offset;
+    ssize_t remaining = std::filesystem::file_size(filepath) - offset;
+    while (remaining > 0) {
         infile.read(temp, sizeof(temp));
         std::streamsize read_bytes = infile.gcount();
-        if (read_bytes <= 0) {
-            break; // EOF
+        if (read_bytes <= 0) break;
+
+        ssize_t sent_total = 0;
+
+        while (sent_total < read_bytes) {
+            ssize_t sent = ::send(fd, temp + sent_total,
+                                read_bytes - sent_total, 0);
+
+            if (sent < 0) {
+                if (errno == EINTR) continue;
+                throw std::runtime_error("send_failed");
+            }
+            if (sent == 0) {
+                throw std::runtime_error("connection_closed");
+            }
+
+            sent_total += sent;
         }
-        ssize_t sent = ::send(fd, temp, static_cast<size_t>(read_bytes), 0);
-        if (sent < 0) {
-            if (errno == EINTR) continue;
-            throw std::runtime_error("send_failed: Failed to send file data");
-        }
+
+        total_sent += sent_total;
+        remaining -= sent_total;
     }
 }

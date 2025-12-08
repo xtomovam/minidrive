@@ -1,12 +1,11 @@
 #include "flows/upload_resume_flow.hpp"
 
-UploadResumeFlow::UploadResumeFlow(Session* s, const std::string& full_remote_path, size_t offset) : Flow(s), full_remote_path(full_remote_path), offset(offset) {
-    this->filesize = std::filesystem::file_size(full_remote_path);
-    this->bytes_remaining = this->filesize;
+UploadResumeFlow::UploadResumeFlow(Session* s, const std::string& full_remote_path, const size_t &filesize, const size_t &offset) : Flow(s), full_remote_path(full_remote_path), filesize(filesize), offset(offset) {
+    this->bytes_remaining = this->filesize - this->offset;
 }
 
 void UploadResumeFlow::onMessage(const std::string& msg) {
-    std::cout << "UploadResumeFlow received message: " << msg << std::endl;
+    // process resume choice
     if (!this->resume) {
         if (msg == "y") {
             std::cout << "Resuming upload of file: " << this->full_remote_path << " from offset " << this->offset << std::endl;
@@ -19,10 +18,9 @@ void UploadResumeFlow::onMessage(const std::string& msg) {
         }
     }
 
+    // handle file upload
     else {
-        std::cout << "Continuing file upload...\n";
         // receive file chunk
-        std::cout << "Receiving file chunk, bytes remaining: " << this->bytes_remaining << std::endl;
         size_t to_receive = this->bytes_remaining < TMP_BUFF_SIZE ? this->bytes_remaining : TMP_BUFF_SIZE;
         size_t offset = this->filesize - this->bytes_remaining;
         this->bytes_remaining -= recv_file_chunk(this->session->getClientFD(), this->full_remote_path, offset, to_receive);
