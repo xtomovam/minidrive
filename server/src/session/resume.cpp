@@ -1,6 +1,6 @@
 #include "session.hpp"
 
-void Session::resume() {
+void Session::resumeUpload() {
     // check for active transfers to resume
     TransferState::clearTransfers(this->getClientDirectory());
     std::vector<TransferState::Transfer> transfers = TransferState::getActiveTransfers(this->getClientDirectory());
@@ -14,10 +14,16 @@ void Session::resume() {
     }
 }
 
-void Session::processResumeChoice(std::string choice) {
+void Session::processResumeChoice(const std::string &choice) {
     if (choice == "y") {
         this->state = State::AwaitingFile;
     } else {
         this->state = State::AwaitingMessage;
     }
 }
+
+void Session::resumeDownload(const std::string &path, const size_t &offset) {
+    // resume download from offset
+    send_file(this->client_fd, path, offset);
+}
+    

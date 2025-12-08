@@ -162,7 +162,7 @@ size_t recv_file_chunk(const int &fd, const std::string &path, const size_t &off
     return static_cast<size_t>(recvd);
 }
 
-void recv_file(const int &fd, const std::string &filepath, const std::string &user_dir, const size_t offset, const bool &resume) {
+void recv_file(const int &fd, const std::string &filepath, const std::string &user_dir, const size_t &offset, const bool &resume) {
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;
@@ -227,7 +227,7 @@ void recv_file(const int &fd, const std::string &filepath, const std::string &us
     }
 }
 
-void send_file(const int &fd, const std::string &filepath, size_t offset) {
+void send_file(const int &fd, const std::string &filepath, const size_t &offset) {
     // open file
     std::ifstream infile(filepath, std::ios::binary);
     if (!infile) {

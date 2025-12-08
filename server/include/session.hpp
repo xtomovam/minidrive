@@ -60,6 +60,7 @@ private:
     std::string client_username = "";
     State state = State::AwaitingMessage;
     bool auth_initiated = false;
+    bool resume_initiated = false;
     TransferState::Transfer current_transfer;
 
     // authentication
@@ -69,8 +70,9 @@ private:
     void authenticateUser(std::string password);
 
     // resuming uploads/downloads
-    void resume();
-    void processResumeChoice(std::string choice);
+    void resumeUpload();
+    void processResumeChoice(const std::string &choice);
+    void resumeDownload(const std::string &path, const size_t &offset);
 
     // uploading files
     void uploadFile(const std::string &local_path, const std::string &remote_path, const size_t &filesize);

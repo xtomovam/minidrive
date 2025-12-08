@@ -1,5 +1,6 @@
 #include "minidrive/version.hpp"
 #include "minidrive/helpers.hpp"
+#include "minidrive/transfer_state.hpp"
 
 #include <iostream>
 #include <string>
@@ -89,14 +90,43 @@ void send_cmd(const int &fd, const std::string &cmd, const size_t &offset = 0) {
 
     // download case
     if (is_cmd(cmd, "DOWNLOAD")) {
-        std::string local_path = "";
-        if (cmd.size() > 10 && cmd.find(' ', 10) != std::string::npos) {
-            local_path = word_from(cmd, cmd.find(' ', 10) + 1);
-        } else {
-            local_path = word_from(cmd, 9);
+        // parse local path
+        std::vector<std::string> parts = split_cmd(cmd);
+        std::string local_path = parts.size() >= 3 ? parts[2] : parts[1];
+
+        // receive FILEINFO response
+        std::string response = recv_msg(fd);
+        if (!is_cmd(response, "FILEINFO")) {
+            throw std::runtime_error("unknown_response: Expected FILEINFO response, got " + response);
         }
-        recv_file(fd, local_path, "", 0);
+        parts = split_cmd(response);
+        if (parts.size() < 3) {
+            throw std::runtime_error("invalid_response: FILEINFO response requires path and size arguments");
+        }
+        std::string &remote_path = parts[1];
+        size_t file_size = std::stoull(parts[2]);
+
+        // create transfer state entry
+        TransferState::Transfer transfer;
+        transfer.local_path = local_path;
+        transfer.remote_path = remote_path;
+        transfer.bytes_completed = 0;
+        transfer.total_bytes = file_size;
+        transfer.timestamp = std::to_string(std::time(nullptr));
+        TransferState::addTransfer(".", transfer);
+
+        // receive file in chunks
+        while (transfer.bytes_completed < transfer.total_bytes) {
+            size_t bytes_left = transfer.total_bytes - transfer.bytes_completed;
+            size_t to_recv = bytes_left < TMP_BUFF_SIZE ? bytes_left : TMP_BUFF_SIZE;
+            size_t recvd = recv_file_chunk(fd, local_path, transfer.bytes_completed, to_recv);
+            transfer.bytes_completed += recvd;
+            TransferState::updateProgress(".", parts[1], transfer.bytes_completed);
+        }
+        
+        // finalize
         std::cout << "OK\nFile downloaded successfully to " << local_path << std::flush;
+        TransferState::removeTransfer(".", parts[1]);
         return;
     }
 
@@ -104,25 +134,73 @@ void send_cmd(const int &fd, const std::string &cmd, const size_t &offset = 0) {
 }
 
 void resume(const int &fd) {
+    bool found_smth = false;
+
+    // receive RESUME command from server
     std::cout << "Checking for incomplete uploads/downloads...\n" << std::flush;
     std::string cmd = recv_msg(fd);
     if (!is_cmd(cmd, "RESUME")) {
         throw std::runtime_error("unknown_response: Expected RESUME command, got " + cmd);
     }
     std::vector<std::string> parts = split_cmd(cmd);
+
+    // incomplete upload transfer -> prompt user to resume
     if (parts.size() >= 3) {
-        std::cout << "Incomplete upload/downloads detected, resume? (y/n):\n> " << std::flush;
+        std::cout << "Incomplete uploads detected, resume? (y/n):\n> " << std::flush;
         std::string answer;
         std::getline(std::cin, answer);
         send_msg(fd, answer);
+        
+        // users chooses to resume -> resume transfer
         if (answer == "y") {
             std::cout << "Resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
             size_t offset = std::stoull(parts[3]);
             send_file(fd, parts[1], offset);
             std::cout << "OK\n" << recv_msg(fd) << std::endl;
         }
-    } else {
-        std::cout << "No incomplete uploads/downloads detected.\n" << std::flush;
+
+        found_smth = true;
+    }
+
+    // check for incomplete downloads
+    TransferState::clearTransfers(".");
+    std::vector<TransferState::Transfer> transfers = TransferState::getActiveTransfers(".");
+
+    // incomplete downloads found -> prompt to resume
+    if (!transfers.empty()) {
+        std::cout << "Incomplete downloads detected, resume? (y/n)\n>" << std::flush;
+        std::string answer;
+        std::getline(std::cin, answer);
+
+        // user chooses to resume -> resume downloads
+        if (answer == "y") {
+            for (const auto& transfer : transfers) {
+                std::cout << "Resuming download of file '" << transfer.remote_path << "' from offset " << transfer.bytes_completed << "...\n" << std::flush;
+                std::cout << "Downloaded " << 0 << " / " << transfer.total_bytes << " bytes" << std::flush;
+
+                // send RESUME command
+                send_msg(fd, "RESUME " + transfer.remote_path + " " + std::to_string(transfer.bytes_completed));
+        
+                // receive file in chunks
+                size_t bytes_completed = transfer.bytes_completed;
+                while (bytes_completed < transfer.total_bytes) {
+                    size_t bytes_left = transfer.total_bytes - bytes_completed;
+                    size_t to_recv = bytes_left < TMP_BUFF_SIZE ? bytes_left : TMP_BUFF_SIZE;
+                    size_t recvd = recv_file_chunk(fd, transfer.local_path, bytes_completed, to_recv);
+                    bytes_completed += recvd;
+                    TransferState::updateProgress(".", transfer.remote_path, bytes_completed);
+                    std::cout << "\rDownloaded " << bytes_completed << " / " << transfer.total_bytes << " bytes" << std::flush;
+                }
+        
+                // finalize
+                std::cout << "\nOK\nFile downloaded successfully to " << transfer.local_path << std::endl;
+                TransferState::removeTransfer(".", transfer.remote_path);
+            }
+            found_smth = true;
+        }
+    }
+    if (!found_smth) {
+        std::cout << "No incomplete uploads/downloads found." << std::endl;
     }
 }
 

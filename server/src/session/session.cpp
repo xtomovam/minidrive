@@ -18,28 +18,22 @@ void Session::onMessage(const std::string &msg) {
         parts.push_back("");
     }
     try {
+
         if (this->state == State::AwaitingRegistrationChoice) {
             this->processRegisterChoice(msg);
-            return;
         } else if (this->state == State::AwaitingRegistrationPassword) {
             this->registerUser(msg);
-            return;
         } else if (this->state == State::AwaitingPassword) {
             this->authenticateUser(msg);
-            return;
         } else if (this->state == State::AwaitingResumeChoice) {
             this->processResumeChoice(msg);
-            return;
         } else if (this->state == State::AwaitingFile) {
             this->uploadFileChunk();
-            return;
         }
 
-        // simple commands
-        if (is_cmd(msg, "LIST")) {
+        // user commands
+        else if (is_cmd(msg, "LIST")) {
             this->list(parts[1]);
-        } else if (is_cmd(msg, "DOWNLOAD")) {
-            this->downloadFile(parts[1]);
         } else if (is_cmd(msg, "DELETE")) {
             this->deleteFile(parts[1]);
         } else if (is_cmd(msg, "CD")) {
@@ -54,14 +48,16 @@ void Session::onMessage(const std::string &msg) {
             this->copy(parts[1], parts[2]);
         } else if (is_cmd(msg, "EXIT")) {
             this->exit();
-
-        // commands requiring flows
-        } else if (is_cmd(msg, "AUTH")) {
-            this->auth(parts[1]);
         } else if (is_cmd(msg, "UPLOAD")) {
             this->uploadFile(parts[2], parts[3], std::stoull(parts[1]));
         } else if (is_cmd(msg, "DOWNLOAD")) {
             this->downloadFile(parts[1]);
+
+        // control commands
+        } else if (is_cmd(msg, "AUTH")) {
+            this->auth(parts[1]);
+        } else if (is_cmd(msg, "RESUME")) {
+            this->resumeDownload(parts[1], std::stoull(parts[2]));
         } else {
             throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
@@ -120,11 +116,6 @@ std::string Session::verifyPath(const std::string &path, const VerifyType &type,
 
 void Session::send(const std::string &msg) const {
     send_msg(this->client_fd, msg);
-}
-
-void Session::receive_file(const std::string &filepath) const {
-    this->verifyPath(filepath, VerifyType::File, VerifyExistence::MustNotExist);
-    recv_file(this->client_fd, filepath, this->client_directory, 0);
 }
 
 void Session::setState(const State &new_state) {
@@ -200,8 +191,15 @@ void Session::list(const std::string path) {
 }
 
 void Session::downloadFile(const std::string &path) {
-    this->verifyPath(this->client_directory + "/" + path, VerifyType::File, VerifyExistence::MustExist);
-    send_file(this->client_fd, this->client_directory + "/" + path);
+    std::string full_path = this->client_directory + "/" + path;
+    this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
+    size_t file_size = static_cast<size_t>(std::filesystem::file_size(full_path));
+    std::string filesize = std::to_string(file_size);
+    this->send("FILEINFO " + full_path + " " + std::to_string(file_size));
+    try {
+        send_file(this->client_fd, full_path);
+    } catch (const std::exception &e) {
+    }
 }
 
 void Session::deleteFile(const std::string &path) {

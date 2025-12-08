@@ -26,7 +26,7 @@ void Session::auth(const std::string &username) {
         
         // no username -> public mode
     } else {
-        this->resume();
+        this->resumeUpload();
     }
 }
 
@@ -54,5 +54,5 @@ void Session::authenticateUser(std::string password) {
         this->send("Authentication failed: Incorrect password.");
     }
     this->state = State::AwaitingMessage;
-    this->resume(); // proceed to resuming uploads
+    this->resumeUpload(); // proceed to resuming uploads
 }
