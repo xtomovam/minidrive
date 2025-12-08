@@ -1,7 +1,8 @@
 add_executable(minidrive_server
     src/main.cpp
     src/simple_server.cpp
-    src/session.cpp
+    src/session/session.cpp
+    src/session/auth.cpp
     src/flows/flow.cpp
     src/flows/upload_flow.cpp
     src/access_control.cpp

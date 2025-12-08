@@ -57,8 +57,10 @@ void Session::onMessage(const std::string &msg) {
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
+            std::cout << "Starting authentication for user: " << parts[1] << std::endl;
             this->auth(parts[1]);
         } else if (is_cmd(msg, "UPLOAD")) {
+            std::cout << "Starting upload flow for file: " << parts[2] << " of size " << parts[1] << std::endl;
             this->current_flow = std::make_unique<UploadFlow>(this, parts[2], parts[3], std::stoull(parts[1]));
         } else if (is_cmd(msg, "DOWNLOAD")) {
             this->downloadFile(parts[1]);
@@ -337,55 +339,3 @@ void Session::resume() {
     }
 }
 
-void Session::auth(const std::string &username) {
-    // no re-authentication allowed
-    if (this->auth_initiated) {
-        throw std::runtime_error("permission_denied: Unable to re-authenticate");
-    }
-    this->auth_initiated = true;
-
-    // set username
-    this->client_username = username;
-    
-    if (!username.empty()) {
-        // non-existent user -> prompt for registration
-        if (!exists_user(username)) {
-            this->send("User " + username + " not found. Register? (y/n)");
-            this->state = State::AwaitingRegistrationChoice; // implement register()
-            
-        } else {
-            // existing user -> ask for password
-            this->state = State::AwaitingPassword;
-        }
-        
-        // no username -> public mode
-    } else {
-        this->resume();
-    }
-}
-
-void Session::processRegisterChoice(std::string choice) {
-    if (choice == "y") { // yes -> ask for password
-        this->send("Password for " + this->client_username + ":");
-        this->state = State::AwaitingRegistrationPassword;
-    } else { // no -> cancel flow
-        this->send("Registration cancelled.");
-    }
-}
-
-void Session::registerUser(std::string password) {
-    // register user
-    register_user(this->client_username, password);
-    this->send("User " + this->client_username + " registered successfully.");
-    this->exit();
-}
-
-void Session::authenticateUser(std::string password) {
-    // authenticate user
-    if (authenticate_user(this->client_username, password)) {
-        this->send("Logged as " + this->client_username + ".");
-        this->resume(); // proceed to resume uploads
-    } else {
-        throw std::runtime_error("authentication_failed: Incorrect password for user " + this->client_username);
-    }
-}

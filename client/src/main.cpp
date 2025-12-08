@@ -106,7 +106,6 @@ void send_cmd(const int &fd, const std::string &cmd, const size_t &offset = 0) {
 void resume(const int &fd) {
     std::cout << "Checking for incomplete uploads/downloads...\n" << std::flush;
     std::string cmd = recv_msg(fd);
-    std::cout << "Received resume command: " << cmd << "\n" << std::flush;
     if (!is_cmd(cmd, "RESUME")) {
         throw std::runtime_error("unknown_response: Expected RESUME command, got " + cmd);
     }
@@ -117,12 +116,10 @@ void resume(const int &fd) {
         std::getline(std::cin, answer);
         send_msg(fd, answer);
         if (answer == "y") {
-            std::cout << "resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
+            std::cout << "Resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
             size_t offset = std::stoull(parts[3]);
             send_file(fd, parts[1], offset);
-            std::cout << "file sent successfully.\nWaiting for server confirmation...\n" << std::flush;
             std::cout << "OK\n" << recv_msg(fd) << std::endl;
-            std::cout << "next msg: " << recv_msg(fd) << std::endl;
         }
     } else {
         std::cout << "No incomplete uploads/downloads detected.\n" << std::flush;
@@ -146,7 +143,7 @@ void authenticate(const int &fd, const std::string &user) {
             send_msg(fd, answer);
             std::cout << recv_msg(fd) << std::endl;
         
-        /// server promts for registration -> send answers and wait for result
+        // server promts for registration -> send answers and wait for result
         } else if (response.starts_with("User " + user + " not found")) {
             std::string answer;
             std::getline(std::cin, answer);
