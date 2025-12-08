@@ -6,7 +6,10 @@
 #include <iostream>
 
 // constructor
-Session::Session(const int &fd, const std::string &root, std::function<void(int)> close_callback) : client_fd(fd), root(root), close_callback(close_callback), working_directory(root + "/public"), client_directory(root + "/public") {}
+Session::Session(const int &fd, const std::string &root, std::function<void(int)> close_callback) : client_fd(fd), root(root), close_callback(close_callback), working_directory(root + "/public"), client_directory(root + "/public") {
+    // clear transfers
+    TransferState::clearTransfers(this->client_directory);
+}
 
 // destructor
 Session::~Session() = default;
@@ -26,6 +29,12 @@ void Session::onMessage(const std::string &msg) {
             return;
         } else if (this->state == State::AwaitingPassword) {
             this->authenticateUser(msg);
+            return;
+        } else if (this->state == State::AwaitingResumeChoice) {
+            this->processResumeChoice(msg);
+            return;
+        } else if (this->state == State::AwaitingFile) {
+            this->uploadFile();
             return;
         }
 
@@ -316,26 +325,6 @@ void Session::copy(const std::string &source, const std::string &destination) {
     this->send("Copied " + source + " to " + destination);
 }
 
-void Session::resume() {
-    // check for active transfers to resume
-    std::cout << "Checking for active transfers to resume\n";
-    TransferState::clearTransfers(this->getClientDirectory());
-    std::cout << "Cleared transfers\n";
-    std::vector<TransferState::Transfer> transfers = TransferState::getActiveTransfers(this->getClientDirectory());
-    std::cout << "Active transfers: " << transfers.size() << std::endl;
-
-    if (!transfers.empty()) {
-        std::cout << "Found active transfer to resume" << std::endl;
-        std::string full_remote_path = transfers[0].remote_path;
-        size_t offset = transfers[0].bytes_completed;
-        size_t file_size = transfers[0].total_bytes;
-        this->current_flow = std::make_unique<UploadResumeFlow>(this, full_remote_path, file_size, offset);
-        std::cout << "Prepared to resume upload of " << full_remote_path << " at offset " << offset << std::endl;
-        this->send("RESUME " + transfers[0].local_path +  " " + transfers[0].remote_path + " " + std::to_string(transfers[0].bytes_completed));
-    } else {
-        std::cout << "No active transfers found" << std::endl;
-        this->send("RESUME");
-        std::cout << "No transfers to resume" << std::endl;
-    }
+void Session::setCurrentTransfer(const TransferState::Transfer &transfer) {
+    this->current_transfer = transfer;
 }
-

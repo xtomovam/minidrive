@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <functional>
+#include <iostream>
 
 class Flow;
 
@@ -14,6 +15,7 @@ public:
         AwaitingRegistrationChoice,
         AwaitingRegistrationPassword,
         AwaitingPassword,
+        AwaitingResumeChoice,
         AwaitingFile
     };
     enum class VerifyType {
@@ -39,13 +41,8 @@ public:
     void receive_file(const std::string &filepath) const;
     void setState(const State &new_state);
     void leaveFlow();
+    void setCurrentTransfer(const TransferState::Transfer &transfer);
     
-    void auth(const std::string &username);
-    void processRegisterChoice(std::string choice);
-    void registerUser(std::string password);
-    void authenticateUser(std::string password);
-    void resume();
-
     // getters and setters
     const int &getClientFD() const;
     const std::string &getRoot() const;
@@ -67,8 +64,20 @@ private:
     std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
     bool auth_initiated = false;
+    TransferState::Transfer current_transfer;
+
+    // authentication
+    void auth(const std::string &username);
+    void processRegisterChoice(std::string choice);
+    void registerUser(std::string password);
+    void authenticateUser(std::string password);
+
+    // resuming uploads/downloads
+    void resume();
+    void processResumeChoice(std::string choice);
 
     void list(const std::string path);
+    void uploadFile();
     void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
 

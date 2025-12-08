@@ -24,6 +24,7 @@ UploadFlow::UploadFlow(Session* s, const std::string local_path, const std::stri
     transfer.total_bytes = filesize;
     transfer.timestamp = std::to_string(std::time(nullptr));
     TransferState::addTransfer(this->session->getClientDirectory(), transfer);
+    this->session->setCurrentTransfer(transfer);
 
     // prepare to receive file
     this->session->setState(Session::State::AwaitingFile);
