@@ -62,7 +62,12 @@ void Session::onMessage(const std::string &msg) {
             throw std::runtime_error("unknown_command: Unknown command: " + msg);
         }
     } catch (const std::exception &e) {
-        this->send(std::string("ERROR ") + e.what());
+        std::string err_msg = "ERROR " + std::string(e.what());
+        size_t pos = err_msg.find(':');
+        if (pos != std::string::npos) {
+            err_msg.replace(pos, 2, ":\n");
+        }
+        this->send(err_msg);
         this->setState(State::AwaitingMessage);
         std::cerr << "Error processing command from client fd=" << this->client_fd << ": " << e.what() << "\n";
     }
@@ -161,23 +166,30 @@ void Session::setClientUsername(const std::string &username) {
     this->client_username = username;
 }
 
+// helpers
+
+std::string Session::path(const std::string &relative_path) const {
+    if (relative_path.starts_with("/")) {
+        return this->root + relative_path;
+    } else {
+        return this->working_directory + "/" + relative_path;
+    }
+}
+
 // command implementations
 
-void Session::list(const std::string path) {
-    namespace fs = std::filesystem;
-
-    std::string full_path = this->working_directory + (path.empty() ? "" : "/" + path);
-
+void Session::list(const std::string &path) {
+    std::string full_path = this->path(path);
     verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
     
     std::ostringstream out;
     size_t n = 0;
-    for (const auto &entry : fs::directory_iterator(full_path)) {
+    for (const auto &entry : std::filesystem::directory_iterator(full_path)) {
         if (n > 0) {
             out << "\n";
         }
 
-        if (fs::is_directory(entry.status())) {
+        if (std::filesystem::is_directory(entry.status())) {
             out << "[DIR]  ";
         } else {
             out << "       ";
@@ -187,12 +199,16 @@ void Session::list(const std::string path) {
         n++;
     }
 
-    this->send(out.str());
+    this->send("OK\n" + out.str());
 }
 
 void Session::downloadFile(const std::string &path) {
-    std::string full_path = this->client_directory + "/" + path;
+    if (path.empty()) {
+        throw std::runtime_error("no_path: DOWNLOAD command requires a path argument");
+    }
+    std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
+
     size_t file_size = static_cast<size_t>(std::filesystem::file_size(full_path));
     std::string filesize = std::to_string(file_size);
     this->send("FILEINFO " + full_path + " " + std::to_string(file_size));
@@ -203,107 +219,81 @@ void Session::downloadFile(const std::string &path) {
 }
 
 void Session::deleteFile(const std::string &path) {
-    namespace fs = std::filesystem;
-
     if (path.empty()) {
         throw std::runtime_error("no_path: DELETE command requires a path argument");
     }
-
-    std::string full_path = this->client_directory + "/" + path;
+    std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
 
-    fs::remove(full_path);
+    std::filesystem::remove(full_path);
 
-    this->send("Deleted file " + path);
+    this->send("OK\nDeleted file " + path);
 }
 
 void Session::changeDirectory(const std::string &path) {
-    namespace fs = std::filesystem;
-
     if (path.empty()) {
         throw std::runtime_error("no_path: CD command requires a path argument");
     }
-
-    std::string full_path = this->working_directory + "/" + path;
+    std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
 
     this->setWorkingDirectory(full_path);
 
-    this->send("Changed directory to " + path);
+    this->send("OK\nChanged directory to " + path);
 }
 
 void Session::makeDirectory(const std::string &path) {
-    namespace fs = std::filesystem;
-
     if (path.empty()) {
         throw std::runtime_error("no_path: MKDIR command requires a path argument");
     }
+    std::string full_path = this->path(path);
+    this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustNotExist);
 
-    std::string full_path = this->working_directory + "/" + path;
-    try {
-        this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustNotExist);
-    } catch (const std::runtime_error &e) {
-        if (std::string(e.what()).find("access_denied") != std::string::npos) {
-            throw;
-        }
-    }
+    std::filesystem::create_directories(full_path);
 
-    fs::create_directories(full_path);
-
-    this->send("Created directory " + path);
+    this->send("OK\nCreated directory " + path);
 }
 
 void Session::removeDirectory(const std::string &path) {
-    namespace fs = std::filesystem;
-
     if (path.empty()) {
         throw std::runtime_error("no_path: RMDIR command requires a path argument");
     }
-
-    std::string full_path = this->working_directory + "/" + path;
+    std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
 
-    fs::remove_all(full_path);
+    std::filesystem::remove_all(full_path);
 
-    this->send("Removed directory " + path);
+    this->send("OK\nRemoved directory " + path);
 }
 
 void Session::move(const std::string &source, const std::string &destination) {
-    namespace fs = std::filesystem;
-
     if (source.empty() || destination.empty()) {
         throw std::runtime_error("no_path: MOVE command requires source and destination path arguments");
     }
-
-    std::string full_source_path = this->working_directory + "/" + source;
-    std::string full_destination_path = this->working_directory + "/" + destination;
+    std::string full_source_path = this->path(source);
+    std::string full_destination_path = this->path(destination);
     this->verifyPath(full_source_path, VerifyType::None, VerifyExistence::MustExist);
-    this->verifyPath(full_destination_path.substr(0, full_destination_path.find_last_of("/\\")), VerifyType::Directory, VerifyExistence::MustExist);
     this->verifyPath(full_destination_path, VerifyType::None, VerifyExistence::MustNotExist);
 
-    fs::rename(full_source_path, full_destination_path);
+    std::string dest_parent = full_destination_path.substr(0, full_destination_path.find_last_of("/\\"));
+    std::filesystem::create_directories(dest_parent);
+    std::filesystem::rename(full_source_path, full_destination_path);
 
-    this->send("Moved " + source + " to " + destination);
+    this->send("OK\nMoved " + source + " to " + destination);
 }
 
 void Session::copy(const std::string &source, const std::string &destination) {
-    namespace fs = std::filesystem;
-
     if (source.empty() || destination.empty()) {
         throw std::runtime_error("no_path: COPY command requires source and destination path arguments");
     }
-
     std::string full_source_path = this->working_directory + "/" + source;
     std::string full_destination_path = this->working_directory + "/" + destination;
     this->verifyPath(full_source_path, VerifyType::None, VerifyExistence::MustExist);
-    this->verifyPath(full_destination_path.substr(0, full_destination_path.find_last_of("/\\")), VerifyType::None, VerifyExistence::DontCare);
     this->verifyPath(full_destination_path, VerifyType::None, VerifyExistence::MustNotExist);
 
-    fs::copy(full_source_path, full_destination_path, fs::copy_options::recursive);
+    std::string dest_parent = full_destination_path.substr(0, full_destination_path.find_last_of("/\\"));
+    std::filesystem::create_directories(dest_parent);
+    std::filesystem::copy(full_source_path, full_destination_path, std::filesystem::copy_options::recursive);
 
-    this->send("Copied " + source + " to " + destination);
-}
-
-void Session::setCurrentTransfer(const TransferState::Transfer &transfer) {
-    this->current_transfer = transfer;
+    this->send("OK\nCopied " + source + " to " + destination);
 }

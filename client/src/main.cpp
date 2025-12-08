@@ -52,85 +52,84 @@ enum class Mode {
     Remote
 };
 
-void process_response(const std::string &response) {
-    // hadnle OK and ERROR responses
-    if (!response.starts_with("ERROR")) {
-        std::cout << "OK\n" << response << std::flush;
-    } else if (response.starts_with("ERROR")) {
-        std::cout << response.substr(0, response.find(':')) << "\n" << response.substr(response.find(':') + 2) << std::flush;
+void download(const int &fd, const std::string &cmd) {    
+    // parse command
+    std::vector<std::string> parts = split_cmd(cmd);
+    if (parts.size() < 2) {
+        throw std::runtime_error("invalid_command: DOWNLOAD command requires a path argument");
     }
-}
+    std::string local_path = parts.size() >= 3 ? parts[2] : parts[1];
 
-void send_cmd(const int &fd, const std::string &cmd, const size_t &offset = 0) {
-    // upload case
-    if (is_cmd(cmd, "UPLOAD")) {
-        std::vector<std::string> parts = split_cmd(cmd);
-
-        // send command with file size
-        std::string local_path = parts[1];
-        size_t file_size = static_cast<size_t>(std::filesystem::file_size(local_path));
-        send_msg(fd, "UPLOAD " + std::to_string(file_size) + cmd.substr(6));
-
-        // READY response -> send file
-        std::string response = recv_msg(fd);
-        if (response.starts_with("READY")) {
-            send_file(fd, local_path, 0);
-            process_response(recv_msg(fd));
-            return;
-        } else {
-            process_response(response);
-            return;
-        }
-        
+    // check if local file exists
+    if (std::filesystem::exists(local_path)) {
+        throw std::runtime_error("file_exists: Local file already exists: " + local_path);
     }
 
     // send command
     send_msg(fd, cmd);
-    std::cout << "Sent command to server (" << cmd.size() << " bytes)" << std::endl;
 
-    // download case
-    if (is_cmd(cmd, "DOWNLOAD")) {
-        // parse local path
-        std::vector<std::string> parts = split_cmd(cmd);
-        std::string local_path = parts.size() >= 3 ? parts[2] : parts[1];
-
-        // receive FILEINFO response
-        std::string response = recv_msg(fd);
-        if (!is_cmd(response, "FILEINFO")) {
-            throw std::runtime_error("unknown_response: Expected FILEINFO response, got " + response);
-        }
-        parts = split_cmd(response);
-        if (parts.size() < 3) {
-            throw std::runtime_error("invalid_response: FILEINFO response requires path and size arguments");
-        }
-        std::string &remote_path = parts[1];
-        size_t file_size = std::stoull(parts[2]);
-
-        // create transfer state entry
-        TransferState::Transfer transfer;
-        transfer.local_path = local_path;
-        transfer.remote_path = remote_path;
-        transfer.bytes_completed = 0;
-        transfer.total_bytes = file_size;
-        transfer.timestamp = std::to_string(std::time(nullptr));
-        TransferState::addTransfer(".", transfer);
-
-        // receive file in chunks
-        while (transfer.bytes_completed < transfer.total_bytes) {
-            size_t bytes_left = transfer.total_bytes - transfer.bytes_completed;
-            size_t to_recv = bytes_left < TMP_BUFF_SIZE ? bytes_left : TMP_BUFF_SIZE;
-            size_t recvd = recv_file_chunk(fd, local_path, transfer.bytes_completed, to_recv);
-            transfer.bytes_completed += recvd;
-            TransferState::updateProgress(".", parts[1], transfer.bytes_completed);
-        }
-        
-        // finalize
-        std::cout << "OK\nFile downloaded successfully to " << local_path << std::flush;
-        TransferState::removeTransfer(".", parts[1]);
-        return;
+    // receive FILEINFO response
+    std::string response = recv_msg(fd);
+    if (!is_cmd(response, "FILEINFO")) {
+        throw std::runtime_error("unknown_response: Expected FILEINFO response, got " + response);
     }
+    parts = split_cmd(response);
+    if (parts.size() < 3) {
+        if (parts.size() > 0 && parts[0] == "ERROR") {
+            throw std::runtime_error(response.substr(6));
+        }
+        throw std::runtime_error("invalid_response: FILEINFO response requires path and size arguments");
+    }
+    std::string &remote_path = parts[1]; // full remote path
+    size_t file_size = std::stoull(parts[2]);
 
-    process_response(recv_msg(fd));
+    // create transfer state entry
+    TransferState::Transfer transfer;
+    transfer.local_path = local_path;
+    transfer.remote_path = remote_path;
+    transfer.bytes_completed = 0;
+    transfer.total_bytes = file_size;
+    transfer.timestamp = std::to_string(std::time(nullptr));
+    TransferState::addTransfer(".", transfer);
+
+    // receive file in chunks
+    std::cout << "Downloaded " << 0 << " / " << transfer.total_bytes << " bytes" << std::flush;
+    while (transfer.bytes_completed < transfer.total_bytes) {
+        size_t bytes_left = transfer.total_bytes - transfer.bytes_completed;
+        size_t to_recv = bytes_left < TMP_BUFF_SIZE ? bytes_left : TMP_BUFF_SIZE;
+        size_t recvd = recv_file_chunk(fd, local_path, transfer.bytes_completed, to_recv);
+        transfer.bytes_completed += recvd;
+        TransferState::updateProgress(".", remote_path, transfer.bytes_completed);
+        std::cout << "\rDownloaded " << transfer.bytes_completed << " / " << transfer.total_bytes << " bytes" << std::flush;
+    }
+    
+    // finalize
+    std::cout << "O\nK\nFile downloaded successfully to " << local_path << std::flush;
+    TransferState::removeTransfer(".", remote_path);
+}
+
+void upload(const int &fd, const std::string &cmd) {
+    // parse local path
+    std::vector<std::string> parts = split_cmd(cmd);
+    if (parts.size() < 2) {
+        throw std::runtime_error("invalid_command: UPLOAD command requires a path argument");
+    }
+    std::string local_path = parts[1];
+
+    // send cmd with file size
+    size_t file_size = std::filesystem::file_size(local_path);
+    std::string new_cmd = "UPLOAD " + std::to_string(file_size) + cmd.substr(parts[0].size());
+    send_msg(fd, new_cmd);
+
+    // READY response -> send file
+    std::string response = recv_msg(fd);
+    parts = split_cmd(response);
+    if (parts.size() == 1 && parts[0] == "READY") {
+        send_file(fd, local_path, 0);
+        std::cout << recv_msg(fd) << std::endl;
+    } else {
+        std::cout << response << std::flush;
+    }
 }
 
 void resume(const int &fd) {
@@ -156,7 +155,7 @@ void resume(const int &fd) {
             std::cout << "Resuming upload of file '" << parts[1] << "' from offset " << parts[3] << "...\n" << std::flush;
             size_t offset = std::stoull(parts[3]);
             send_file(fd, parts[1], offset);
-            std::cout << "OK\n" << recv_msg(fd) << std::endl;
+            std::cout << recv_msg(fd) << std::endl;
         }
 
         found_smth = true;
@@ -265,7 +264,7 @@ void main_loop(const int &fd, const Mode &mode) {
                 print_help();
             } else if (is_cmd(cmd, ("EXIT"))) {
                 if (mode == Mode::Remote) {
-                    send_cmd(fd, "EXIT");
+                    send_msg(fd, "EXIT");
                 }
                 std::cout << "Exiting...\n";
                 return;
@@ -274,7 +273,15 @@ void main_loop(const int &fd, const Mode &mode) {
             } else {
                 if (mode == Mode::Remote) {
                     try {
-                        send_cmd(fd, cmd);
+                        std::vector<std::string> parts = split_cmd(cmd);
+                        if (parts[0] == "DOWNLOAD") {
+                            download(fd, cmd);                        
+                        } else if (parts[0] == "UPLOAD") {
+                            upload(fd, cmd);
+                        } else {
+                            send_msg(fd, cmd);
+                            std::cout << recv_msg(fd) << std::endl;
+                        }
                     } catch (const std::exception &e) {
                         std::cerr << "ERROR: " << e.what() << std::flush;
                         if (std::string(e.what()).find("connection_closed") != std::string::npos) {

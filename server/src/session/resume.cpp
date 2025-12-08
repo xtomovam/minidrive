@@ -7,7 +7,7 @@ void Session::resumeUpload() {
 
     if (!transfers.empty()) {
         this->send("RESUME " + transfers[0].local_path +  " " + transfers[0].remote_path + " " + std::to_string(transfers[0].bytes_completed));
-        this->setCurrentTransfer(transfers[0]);
+        this->current_transfer = transfers[0];
         this->state = State::AwaitingResumeChoice;
     } else {
         this->send("RESUME");

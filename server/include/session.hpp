@@ -63,6 +63,9 @@ private:
     bool resume_initiated = false;
     TransferState::Transfer current_transfer;
 
+    // helpers
+    std::string path(const std::string &relative_path) const;
+
     // authentication
     void auth(const std::string &username);
     void processRegisterChoice(std::string choice);
@@ -78,10 +81,10 @@ private:
     void uploadFile(const std::string &local_path, const std::string &remote_path, const size_t &filesize);
     void uploadFileChunk();
 
-    void list(const std::string path);
+    // file operations
+    void list(const std::string &path);
     void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
-
     void changeDirectory(const std::string &path);
     void makeDirectory(const std::string &path);
     void removeDirectory(const std::string &path);
