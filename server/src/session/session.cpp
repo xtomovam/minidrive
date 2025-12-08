@@ -1,7 +1,5 @@
 #include "session.hpp"
-#include "flows/flow.hpp"
 #include "access_control.hpp"
-#include "flows/upload_flow.hpp"
 #include <iostream>
 
 // constructor
@@ -33,13 +31,7 @@ void Session::onMessage(const std::string &msg) {
             this->processResumeChoice(msg);
             return;
         } else if (this->state == State::AwaitingFile) {
-            this->uploadFile();
-            return;
-        }
-
-        // in a flow -> delegate to flow
-        if (this->current_flow) {
-            this->current_flow->onMessage(msg);
+            this->uploadFileChunk();
             return;
         }
 
@@ -65,11 +57,9 @@ void Session::onMessage(const std::string &msg) {
 
         // commands requiring flows
         } else if (is_cmd(msg, "AUTH")) {
-            std::cout << "Starting authentication for user: " << parts[1] << std::endl;
             this->auth(parts[1]);
         } else if (is_cmd(msg, "UPLOAD")) {
-            std::cout << "Starting upload flow for file: " << parts[2] << " of size " << parts[1] << std::endl;
-            this->current_flow = std::make_unique<UploadFlow>(this, parts[2], parts[3], std::stoull(parts[1]));
+            this->uploadFile(parts[2], parts[3], std::stoull(parts[1]));
         } else if (is_cmd(msg, "DOWNLOAD")) {
             this->downloadFile(parts[1]);
         } else {
@@ -77,9 +67,6 @@ void Session::onMessage(const std::string &msg) {
         }
     } catch (const std::exception &e) {
         this->send(std::string("ERROR ") + e.what());
-        if (this->current_flow) {
-            this->leaveFlow();
-        }
         this->setState(State::AwaitingMessage);
         std::cerr << "Error processing command from client fd=" << this->client_fd << ": " << e.what() << "\n";
     }
@@ -142,11 +129,6 @@ void Session::receive_file(const std::string &filepath) const {
 
 void Session::setState(const State &new_state) {
     this->state = new_state;
-}
-
-void Session::leaveFlow() {
-    this->current_flow.reset();
-    this->state = State::AwaitingMessage;
 }
 
 // getters and setters

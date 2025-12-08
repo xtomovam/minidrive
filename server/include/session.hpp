@@ -6,8 +6,6 @@
 #include <functional>
 #include <iostream>
 
-class Flow;
-
 class Session {
 public:
     enum class State {
@@ -40,7 +38,6 @@ public:
     void send(const std::string &msg) const;
     void receive_file(const std::string &filepath) const;
     void setState(const State &new_state);
-    void leaveFlow();
     void setCurrentTransfer(const TransferState::Transfer &transfer);
     
     // getters and setters
@@ -61,7 +58,6 @@ private:
     std::string working_directory = "public";
     std::string client_directory = "public";
     std::string client_username = "";
-    std::unique_ptr <Flow> current_flow;
     State state = State::AwaitingMessage;
     bool auth_initiated = false;
     TransferState::Transfer current_transfer;
@@ -76,8 +72,11 @@ private:
     void resume();
     void processResumeChoice(std::string choice);
 
+    // uploading files
+    void uploadFile(const std::string &local_path, const std::string &remote_path, const size_t &filesize);
+    void uploadFileChunk();
+
     void list(const std::string path);
-    void uploadFile();
     void downloadFile(const std::string &path);
     void deleteFile(const std::string &path);
 
