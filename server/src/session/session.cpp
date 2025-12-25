@@ -133,10 +133,6 @@ const int &Session::getClientFD() const {
     return this->client_fd;
 }
 
-const std::string &Session::getRoot() const {
-    return this->root;
-}
-
 const std::string &Session::getWorkingDirectory() const {
     return this->working_directory;
 }
@@ -145,25 +141,8 @@ const std::string &Session::getClientDirectory() const {
     return this->client_directory;
 }
 
-const std::string &Session::getClientUsername() const {
-    return this->client_username;
-}
-
 Session::State Session::getState() const {
     return this->state;
-}
-
-void Session::setClientDirectory(const std::string &path) {
-    this->client_directory = path;
-}
-
-void Session::setWorkingDirectory(const std::string &path) {
-    // ensure path is within client directory
-    this->working_directory = this->verifyPath(path, VerifyType::Directory, VerifyExistence::MustExist);
-}
-
-void Session::setClientUsername(const std::string &username) {
-    this->client_username = username;
 }
 
 // helpers
@@ -179,7 +158,9 @@ std::string Session::path(const std::string &relative_path) const {
 // command implementations
 
 void Session::list(const std::string &path) {
+    std::cout << "Listing path: " << path << std::endl;
     std::string full_path = this->path(path);
+    std::cout << "Full path: " << full_path << std::endl;
     verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
     
     std::ostringstream out;
@@ -237,7 +218,7 @@ void Session::changeDirectory(const std::string &path) {
     std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
 
-    this->setWorkingDirectory(full_path);
+    this->working_directory = full_path;
 
     this->send("OK\nChanged directory to " + path);
 }
@@ -247,7 +228,7 @@ void Session::makeDirectory(const std::string &path) {
         throw std::runtime_error("no_path: MKDIR command requires a path argument");
     }
     std::string full_path = this->path(path);
-    this->verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustNotExist);
+    this->verifyPath(full_path, VerifyType::None, VerifyExistence::MustNotExist);
 
     std::filesystem::create_directories(full_path);
 

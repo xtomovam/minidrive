@@ -26,12 +26,13 @@ bool verify_pwd(const std::string &hash, const std::string &password) {
 
 nlohmann::json load_users(const std::string &root) {
     std::string path = root + "/users.json";
+
     // if file does not exist, create empty database
     if (!std::filesystem::exists(path)) {
         nlohmann::json empty = nlohmann::json::object();
         std::ofstream outfile(path);
         if (!outfile.is_open()) {
-            throw std::runtime_error("database: Could not create users database");
+            throw std::runtime_error("database: Could not create users database (path: " + path + ")");
         }
         outfile << empty.dump(4);
         return empty;
@@ -55,22 +56,22 @@ void save_users(const std::string &root, const nlohmann::json &users) {
     file << users.dump(4);
 }
 
-bool exists_user(const std::string &user) {
-    nlohmann::json users = load_users("server/root");
+bool exists_user(const std::string &user, const std::string &root) {
+    nlohmann::json users = load_users(root);
     return users.contains(user);
 }
 
-void register_user(const std::string &user, const std::string &password) {
-    nlohmann::json users = load_users("server/root");
+void register_user(const std::string &user, const std::string &password, const std::string &root) {
+    nlohmann::json users = load_users(root);
     if (users.contains(user)) {
         throw std::runtime_error("user_exists: User already exists");
     }
     users[user] = hash_pwd(password);
-    save_users("server/root", users);
+    save_users(root, users);
 }
 
-bool authenticate_user(const std::string &user, const std::string &password) {
-    nlohmann::json users = load_users("server/root");
+bool authenticate_user(const std::string &user, const std::string &password, const std::string &root) {
+    nlohmann::json users = load_users(root);
     if (!users.contains(user)) {
         return false;
     }

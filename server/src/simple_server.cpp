@@ -62,6 +62,18 @@ const std::string download(const int &client_fd, const std::string &cmd) {
 }
 
 void start_simple_server(const std::uint16_t &port, const std::string &root) {
+    // verify root directory exists
+    if (!std::filesystem::exists("./" +root)) {
+        std::cout << "Root directory does not exist: " << root << std::endl;
+        return;
+    }
+
+    // if no public directory, create it
+    if (!std::filesystem::exists("public")) {
+        std::filesystem::create_directory("public");
+    }
+
+    // create listen socket
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
         std::cerr << "Failed to set up listen socket on port " << port << std::endl;

@@ -36,20 +36,14 @@ public:
     // API for flows
     std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
     void send(const std::string &msg) const;
-    void receive_file(const std::string &filepath) const;
     void setState(const State &new_state);
-    void setCurrentTransfer(const TransferState::Transfer &transfer);
     
     // getters and setters
     const int &getClientFD() const;
     const std::string &getRoot() const;
     const std::string &getWorkingDirectory() const;
     const std::string &getClientDirectory() const;
-    const std::string &getClientUsername() const;
     State getState() const;
-    void setClientDirectory(const std::string &path);
-    void setWorkingDirectory(const std::string &path);
-    void setClientUsername(const std::string &username);
     
 private:
     const int client_fd;
