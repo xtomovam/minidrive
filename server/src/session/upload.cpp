@@ -12,6 +12,7 @@ void Session::uploadFile(const std::string &local_path, const std::string &remot
     } else {
         this->current_transfer.remote_path += remote_path;
     }
+    this->current_transfer.remote_path += ".part";
     this->verifyPath(this->current_transfer.remote_path, VerifyType::None, VerifyExistence::MustNotExist);
 
     // log transfer
@@ -39,5 +40,7 @@ void Session::uploadFileChunk() {
         TransferState::removeTransfer(this->getClientDirectory(), this->current_transfer.remote_path);
         this->state = State::AwaitingMessage;
         std::cout << "Upload of file " << this->current_transfer.remote_path << " completed.\n";
+        // remove .part suffix
+        std::filesystem::rename(this->current_transfer.remote_path, this->current_transfer.remote_path.substr(0, this->current_transfer.remote_path.size() - 5));
     }
 }
