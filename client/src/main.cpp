@@ -58,7 +58,7 @@ void download(const int &fd, const std::string &cmd) {
     if (parts.size() < 2) {
         throw std::runtime_error("invalid_command: DOWNLOAD command requires a path argument");
     }
-    std::string local_path = parts.size() >= 3 ? parts[2] : parts[1];
+    std::string local_path = parts.size() >= 3 ? parts[2] : parts[1] + ".part";
 
     // check if local file exists
     if (std::filesystem::exists(local_path)) {
@@ -93,19 +93,19 @@ void download(const int &fd, const std::string &cmd) {
     TransferState::addTransfer(".", transfer);
 
     // receive file in chunks
-    std::cout << "Downloaded " << 0 << " / " << transfer.total_bytes << " bytes" << std::flush;
     while (transfer.bytes_completed < transfer.total_bytes) {
         size_t bytes_left = transfer.total_bytes - transfer.bytes_completed;
         size_t to_recv = bytes_left < TMP_BUFF_SIZE ? bytes_left : TMP_BUFF_SIZE;
         size_t recvd = recv_file_chunk(fd, local_path, transfer.bytes_completed, to_recv);
         transfer.bytes_completed += recvd;
         TransferState::updateProgress(".", remote_path, transfer.bytes_completed);
-        std::cout << "\rDownloaded " << transfer.bytes_completed << " / " << transfer.total_bytes << " bytes" << std::flush;
     }
     
     // finalize
-    std::cout << "O\nK\nFile downloaded successfully to " << local_path << std::flush;
+    std::filesystem::rename(local_path, local_path.substr(0, local_path.size() - 5));
+    local_path = local_path.substr(0, local_path.size() - 5);
     TransferState::removeTransfer(".", remote_path);
+    std::cout << "OK\nFile downloaded successfully to " << local_path << std::endl;
 }
 
 void upload(const int &fd, const std::string &cmd) {
@@ -175,7 +175,6 @@ void resume(const int &fd) {
         if (answer == "y") {
             for (const auto& transfer : transfers) {
                 std::cout << "Resuming download of file '" << transfer.remote_path << "' from offset " << transfer.bytes_completed << "...\n" << std::flush;
-                std::cout << "Downloaded " << 0 << " / " << transfer.total_bytes << " bytes" << std::flush;
 
                 // send RESUME command
                 send_msg(fd, "RESUME " + transfer.remote_path + " " + std::to_string(transfer.bytes_completed));
@@ -188,7 +187,6 @@ void resume(const int &fd) {
                     size_t recvd = recv_file_chunk(fd, transfer.local_path, bytes_completed, to_recv);
                     bytes_completed += recvd;
                     TransferState::updateProgress(".", transfer.remote_path, bytes_completed);
-                    std::cout << "\rDownloaded " << bytes_completed << " / " << transfer.total_bytes << " bytes" << std::flush;
                 }
         
                 // finalize
