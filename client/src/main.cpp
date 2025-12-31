@@ -299,14 +299,6 @@ void main_loop(const int &fd, const Mode &mode) {
 
 int main(int argc, char* argv[]) {
 
-    // set client root directory
-    try {
-        std::filesystem::current_path("client/root");
-    } catch (const std::exception &e) {
-        std::cerr << "Failed to set client root directory: " << e.what() << std::endl;
-        return 1;
-    }
-    
     // Echo full command line once for diagnostics
     std::cout << "[cmd]";
     for (int i = 0; i < argc; ++i) {
