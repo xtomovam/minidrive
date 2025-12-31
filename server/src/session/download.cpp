@@ -1,5 +1,4 @@
 #include "session.hpp"
-#include <algorithm>
 
 void Session::downloadFile(const std::string &path) {
     if (path.empty()) {

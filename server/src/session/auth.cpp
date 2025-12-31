@@ -2,7 +2,6 @@
 #include "access_control.hpp"
 
 void Session::auth(const std::string &username) {
-    std::cout << "Auth called for user: " << username << std::endl;
     // no re-authentication allowed
     if (this->auth_initiated) {
         throw std::runtime_error("permission_denied: Unable to re-authenticate");

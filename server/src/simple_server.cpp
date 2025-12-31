@@ -61,7 +61,7 @@ const std::string download(const int &client_fd, const std::string &cmd) {
     return "Downloaded " + server_path + " to " + client_path;
 }
 
-void start_simple_server(const std::uint16_t &port, const std::string &root) {
+void start_simple_server(const std::uint16_t &port, const std::string &root, const std::string &log_file) {
     // verify root directory exists
     if (!std::filesystem::exists("./" +root)) {
         std::cout << "Root directory does not exist: " << root << std::endl;
@@ -73,13 +73,20 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
         std::filesystem::create_directory(root + "/public");
     }
 
+    // open log file
+    std::ofstream log(log_file, std::ios::app);
+    if (!log.is_open()) {
+        std::cerr << "Failed to open log file: " << log_file << std::endl;
+        return;
+    }
+
     // create listen socket
     int listen_fd = create_listen_socket(port);
     if (listen_fd < 0) {
-        std::cerr << "Failed to set up listen socket on port " << port << std::endl;
+        log << "Failed to set up listen socket on port " << port << std::endl;
         return;
     }
-    std::cout << "Simple server listening on port " << port << std::endl;
+    log << "Simple server listening on port " << port << std::endl;
 
     std::unordered_map<int, std::unique_ptr<Session>> sessions;
 
@@ -126,7 +133,7 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
             char ipbuf[INET_ADDRSTRLEN];
             const char* ipstr = ::inet_ntop(AF_INET, &client_addr.sin_addr, ipbuf, sizeof(ipbuf));
             if (ipstr) {
-                std::cout << "Client connected from " << ipstr << ":" << ntohs(client_addr.sin_port) << std::endl;
+                log << "Client connected from " << ipstr << ":" << ntohs(client_addr.sin_port) << std::endl;
             }
 
             // create session
@@ -146,7 +153,7 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
                 try {
                     p.second->downloadFileChunk();
                 } catch (const std::exception &e) {
-                    std::cerr << "Error sending file to client " << fd << ": " << e.what() << "\n";
+                    log << "Error sending file to client " << fd << ": " << e.what() << "\n";
                     toClose.push_back(fd);
                 }
                 continue;
@@ -161,7 +168,7 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
                     try {
                         sessions[fd]->onMessage("");
                     } catch (const std::exception &e) {
-                        std::cerr << "Error processing file for client " << fd << ": " << e.what() << "\n";
+                        log << "Error processing file for client " << fd << ": " << e.what() << "\n";
                         toClose.push_back(fd);
                     }
                     continue;
@@ -171,23 +178,23 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
                     msg = recv_msg(fd);
                 } catch (const std::exception &e) {
                     if (std::string(e.what()).find("connection_closed") != std::string::npos) {
-                        std::cout << "Client " << fd << " disconnected\n";
+                        log << "Client " << fd << " disconnected\n";
                         toClose.push_back(fd);
                         continue;
                     } else {
-                        std::cerr << "Error receiving message from client " << fd << ": " << e.what() << "\n";
+                        log << "Error receiving message from client " << fd << ": " << e.what() << "\n";
                         continue;
                     }
                 }
 
                 if (msg.empty()) {
                     // client disconnected
-                    std::cout << "Client " << fd << " disconnected\n";
+                    log << "Client " << fd << " disconnected\n";
                     toClose.push_back(fd);
                     continue;
                 }
 
-                std::cout << "Received (" << msg.size() << " bytes) from fd=" << fd << ": " << msg << "\n";
+                log << "Received (" << msg.size() << " bytes) from fd=" << fd << ": " << msg << "\n";
 
                 // delegate session logic
                 p.second->onMessage(msg);
@@ -202,4 +209,5 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
     }
 
     ::close(listen_fd);
+    log.close();
 }

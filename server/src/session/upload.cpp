@@ -41,6 +41,5 @@ void Session::uploadFileChunk() {
         this->send("OK\nUploaded file to " + this->current_transfer.remote_path);
         TransferState::removeTransfer(this->getClientDirectory(), this->current_transfer.remote_path);
         this->state = State::AwaitingMessage;
-        std::cout << "Upload of file " << this->current_transfer.remote_path << " completed.\n";
     }
 }

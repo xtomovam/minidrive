@@ -1,6 +1,5 @@
 #include "session.hpp"
 #include "access_control.hpp"
-#include <iostream>
 
 // static member initialization
 std::shared_mutex Session::files_mutex;
@@ -162,9 +161,7 @@ std::string Session::path(const std::string &relative_path) const {
 // command implementations
 
 void Session::list(const std::string &path) {
-    std::cout << "Listing path: " << path << std::endl;
     std::string full_path = this->path(path);
-    std::cout << "Full path: " << full_path << std::endl;
     verifyPath(full_path, VerifyType::Directory, VerifyExistence::MustExist);
     
     std::ostringstream out;
