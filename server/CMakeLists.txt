@@ -5,6 +5,7 @@ add_executable(minidrive_server
     src/session/auth.cpp
     src/session/resume.cpp
     src/session/upload.cpp
+    src/session/download.cpp
     src/access_control.cpp
 )
 

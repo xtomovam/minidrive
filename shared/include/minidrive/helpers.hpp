@@ -16,6 +16,7 @@ const std::vector<std::string> split_cmd(const std::string &cmd);
 
 size_t receive_length_prefix(const int &fd);
 size_t recv_file_chunk(const int &fd, const std::string &path, const size_t &offset, const size_t &chunk_size);
+size_t send_file_chunk(const int &fd, std::ifstream &stream, const size_t &chunk_size);
 
 const std::string recv_msg(const int &fd);
 void send_msg(const int &fd, const std::string &msg);

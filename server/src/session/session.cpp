@@ -2,6 +2,10 @@
 #include "access_control.hpp"
 #include <iostream>
 
+// static member initialization
+std::shared_mutex Session::files_mutex;
+std::unordered_set<std::string> Session::locked_files;
+
 // constructor
 Session::Session(const int &fd, const std::string &root, std::function<void(int)> close_callback) : client_fd(fd), root(root), close_callback(close_callback), working_directory(root + "/public"), client_directory(root + "/public") {
     // clear transfers
@@ -183,21 +187,6 @@ void Session::list(const std::string &path) {
     this->send("OK\n" + out.str());
 }
 
-void Session::downloadFile(const std::string &path) {
-    if (path.empty()) {
-        throw std::runtime_error("no_path: DOWNLOAD command requires a path argument");
-    }
-    std::string full_path = this->path(path);
-    this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
-
-    size_t file_size = static_cast<size_t>(std::filesystem::file_size(full_path));
-    std::string filesize = std::to_string(file_size);
-    this->send("FILEINFO " + full_path + " " + std::to_string(file_size));
-    try {
-        send_file(this->client_fd, full_path);
-    } catch (const std::exception &e) {
-    }
-}
 
 void Session::deleteFile(const std::string &path) {
     if (path.empty()) {
@@ -205,6 +194,11 @@ void Session::deleteFile(const std::string &path) {
     }
     std::string full_path = this->path(path);
     this->verifyPath(full_path, VerifyType::File, VerifyExistence::MustExist);
+
+    // check if file is currently being downloaded
+    if (isFileLocked(full_path)) {
+        throw std::runtime_error("file_in_use: Cannot delete file while it is being downloaded");
+    }
 
     std::filesystem::remove(full_path);
 
@@ -277,4 +271,19 @@ void Session::copy(const std::string &source, const std::string &destination) {
     std::filesystem::copy(full_source_path, full_destination_path, std::filesystem::copy_options::recursive);
 
     this->send("OK\nCopied " + source + " to " + destination);
+}
+
+void Session::lockFileForDownload(const std::string &filepath) {
+    std::unique_lock<std::shared_mutex> lock(files_mutex);
+    locked_files.insert(filepath);
+}
+
+void Session::unlockFileForDownload(const std::string &filepath) {
+    std::unique_lock<std::shared_mutex> lock(files_mutex);
+    locked_files.erase(filepath);
+}
+
+bool Session::isFileLocked(const std::string &filepath) {
+    std::shared_lock<std::shared_mutex> lock(files_mutex);
+    return locked_files.count(filepath) > 0;
 }

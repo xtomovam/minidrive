@@ -88,18 +88,23 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
     while (true) {
         toClose.clear();
         
-        // add all client fds to set
+        // add all client fds to sets
         fd_set readfds;
+        fd_set writefds;
         FD_ZERO(&readfds);
+        FD_ZERO(&writefds);
         FD_SET(listen_fd, &readfds);
         int maxfd = listen_fd;
         for (auto &p : sessions) {
             FD_SET(p.first, &readfds);
+            if (p.second->getState() == Session::State::DownloadingFile) {
+                FD_SET(p.first, &writefds);
+            }
             if (p.first > maxfd) maxfd = p.first;
         }
 
         // wait for event
-        int activity = select(maxfd + 1, &readfds, nullptr, nullptr, nullptr);
+        int activity = select(maxfd + 1, &readfds, &writefds, nullptr, nullptr);
         if (activity < 0) {
             if (errno == EINTR) continue;
             perror("select");
@@ -132,9 +137,22 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
             );
         }
 
-        // existing client sent message -> read and process
+        // handle existing clients
         for (auto &p : sessions) {
             int fd = p.first;
+
+            // handle active downloads when socket is writable
+            if (p.second->getState() == Session::State::DownloadingFile && FD_ISSET(fd, &writefds)) {
+                try {
+                    p.second->downloadFileChunk();
+                } catch (const std::exception &e) {
+                    std::cerr << "Error sending file to client " << fd << ": " << e.what() << "\n";
+                    toClose.push_back(fd);
+                }
+                continue;
+            }
+
+            // existing client sent message -> read and process
             if (FD_ISSET(fd, &readfds)) {
                 std::string msg;
 

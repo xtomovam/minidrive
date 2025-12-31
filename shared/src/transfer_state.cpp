@@ -2,7 +2,7 @@
 #include <iostream>
 void TransferState::addTransfer(const std::string& user_dir, const Transfer& transfer) {
     // add transfer to .transfers_state file in user_dir
-    std::ofstream outfile(user_dir + "/.transfers_state", std::ios::binary);
+    std::ofstream outfile(user_dir + "/.transfers_state", std::ios::binary | std::ios::app);
     if (!outfile) {
         throw std::runtime_error("file_open_failed: Failed to open transfers state file for writing");
     }

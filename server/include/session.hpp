@@ -5,6 +5,10 @@
 #include <memory>
 #include <functional>
 #include <iostream>
+#include <fstream>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_set>
 
 class Session {
 public:
@@ -14,7 +18,8 @@ public:
         AwaitingRegistrationPassword,
         AwaitingPassword,
         AwaitingResumeChoice,
-        AwaitingFile
+        AwaitingFile,
+        DownloadingFile
     };
     enum class VerifyType {
         File,
@@ -33,10 +38,13 @@ public:
     void onMessage(const std::string &msg);
     void exit();
     
-    // API for flows
-    std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
-    void send(const std::string &msg) const;
-    void setState(const State &new_state);
+    // downloading files
+    void downloadFileChunk();
+    
+    // file locking for concurrent downloads
+    static void lockFileForDownload(const std::string &filepath);
+    static void unlockFileForDownload(const std::string &filepath);
+    static bool isFileLocked(const std::string &filepath);
     
     // getters and setters
     const int &getClientFD() const;
@@ -51,6 +59,22 @@ private:
     std::function<void(int)> close_callback;
     std::string working_directory = "public";
     std::string client_directory = "public";
+    
+    // download state
+    std::ifstream download_stream;
+    std::string download_path;
+    size_t download_bytes_sent = 0;
+    size_t download_total_bytes = 0;
+    
+    // global file lock tracking across all sessions
+    static std::shared_mutex files_mutex;
+    static std::unordered_set<std::string> locked_files;
+    
+    // session helpers
+    std::string verifyPath(const std::string &path, const VerifyType &type, const VerifyExistence &existence) const;
+    void send(const std::string &msg) const;
+    void setState(const State &new_state);
+    
     std::string client_username = "";
     State state = State::AwaitingMessage;
     bool auth_initiated = false;

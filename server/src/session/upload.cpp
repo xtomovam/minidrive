@@ -36,11 +36,11 @@ void Session::uploadFileChunk() {
     TransferState::updateProgress(this->getClientDirectory(), this->current_transfer.remote_path, this->current_transfer.bytes_completed);
     
     if (bytes_left == 0) { // file received -> finish upload
+        std::filesystem::rename(this->current_transfer.remote_path, this->current_transfer.remote_path.substr(0, this->current_transfer.remote_path.size() - 5));
+        this->current_transfer.remote_path = this->current_transfer.remote_path.substr(0, this->current_transfer.remote_path.size() - 5);
         this->send("OK\nUploaded file to " + this->current_transfer.remote_path);
         TransferState::removeTransfer(this->getClientDirectory(), this->current_transfer.remote_path);
         this->state = State::AwaitingMessage;
         std::cout << "Upload of file " << this->current_transfer.remote_path << " completed.\n";
-        // remove .part suffix
-        std::filesystem::rename(this->current_transfer.remote_path, this->current_transfer.remote_path.substr(0, this->current_transfer.remote_path.size() - 5));
     }
 }

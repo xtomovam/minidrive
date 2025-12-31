@@ -270,3 +270,35 @@ void send_file(const int &fd, const std::string &filepath, const size_t &offset)
         remaining -= sent_total;
     }
 }
+
+size_t send_file_chunk(const int &fd, std::ifstream &stream, const size_t &chunk_size) {
+    if (chunk_size > TMP_BUFF_SIZE) {
+        throw std::runtime_error("invalid_argument: chunk_size exceeds TMP_BUFF_SIZE");
+    }
+
+    char buffer[TMP_BUFF_SIZE];
+    stream.read(buffer, static_cast<std::streamsize>(chunk_size));
+    std::streamsize read_bytes = stream.gcount();
+    if (read_bytes <= 0) {
+        throw std::runtime_error("file_read_failed: Failed to read from file during download");
+    }
+
+    ssize_t sent_total = 0;
+    while (sent_total < read_bytes) {
+        ssize_t sent = ::send(fd, buffer + sent_total,
+                              static_cast<size_t>(read_bytes - sent_total), 0);
+
+        if (sent < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            throw std::runtime_error("send_failed: Failed to send download chunk");
+        }
+        if (sent == 0) {
+            throw std::runtime_error("connection_closed: Connection closed during download");
+        }
+        sent_total += sent;
+    }
+
+    return static_cast<size_t>(sent_total);
+}
