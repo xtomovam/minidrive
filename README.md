@@ -6,6 +6,23 @@ Experimental client/server file synchronization system written in modern C++ as 
 
 See [docs/requirements.md](docs/requirements.md) for the full assignment description.
 
+## Project Structure
+
+The codebase is organized into three main components:
+
+- **`shared/`** – Common code used by both client and server (protocol definitions, utilities, data structures)
+- **`server/`** – Server-side application that listens for connections and manages file synchronization. The server handles multiple client sessions concurrently, with each session managing its own connection state and file operations.
+- **`client/`** – Client-side application that connects to the server and synchronizes local files. Each client maintains a session with the server, tracking synchronization state and handling bidirectional file transfers.
+
+### Session Management
+
+Sessions represent active connections between clients and the server:
+
+- Each client connection creates a new session on the server
+- Sessions maintain connection state, authentication context, and file synchronization progress
+- The server manages multiple concurrent sessions using select() for event-driven I/O
+- Sessions are cleaned up when clients disconnect or timeout occurs
+
 ## Build
 
 This is sample project layout for C++ applications using CMake. You can use it as a starting point for your own projects. It is in fact recommended to fork this repository and build upon it. But of course we only need your project to build with CMake and create client/server executables.
