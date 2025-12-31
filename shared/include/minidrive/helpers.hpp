@@ -9,9 +9,6 @@
 #include <filesystem>
 
 bool is_cmd(const std::string &msg, const std::string &cmd);
-
-const std::string word_from(const std::string &str, const size_t &start);
-const std::string nth_word(const std::string &str, const size_t &n);
 const std::vector<std::string> split_cmd(const std::string &cmd);
 
 size_t receive_length_prefix(const int &fd);

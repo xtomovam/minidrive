@@ -5,35 +5,6 @@ bool is_cmd(const std::string &msg, const std::string &cmd) {
     return msg.starts_with(cmd) && (msg.size() == cmd.size() || msg[cmd.size()] == ' ');
 }
 
-const std::string word_from(const std::string &str, const size_t &start) {
-    if (start >= str.size()) {
-        return "";
-    }
-
-    std::string word;
-    size_t pos = str.find(' ', start);
-    if (pos == std::string::npos) {
-        word = str.substr(start);
-    } else {
-        word = str.substr(start, pos - start);
-    }
-    return word;
-}
-
-const std::string nth_word(const std::string &str, const size_t &n) {
-    size_t count = 0;
-    size_t start = 0;
-    while (count < n && start < str.size()) {
-        size_t pos = str.find(' ', start);
-        if (pos == std::string::npos) {
-            return "";
-        }
-        start = pos + 1;
-        count++;
-    }
-    return word_from(str, start);
-}
-
 const std::vector<std::string> split_cmd(const std::string &cmd) {
     std::vector<std::string> parts;
     size_t start = 0;
@@ -64,8 +35,7 @@ size_t receive_length_prefix(const int &fd) {
         if (c == ' ') {
             break;
         }
-        length *= 10;
-        length += c - '0';
+        length = length * 10 + static_cast<size_t>(static_cast<unsigned char>(c) - static_cast<unsigned char>('0'));
     }
     return length;
 }
@@ -114,7 +84,6 @@ void send_msg(const int &fd, const std::string &msg) {
 
 size_t recv_file_chunk(const int &fd, const std::string &path, const size_t &offset, const size_t &chunk_size) {
     namespace fs = std::filesystem;
-    ssize_t total_received = 0;
 
     if (chunk_size > TMP_BUFF_SIZE) {
         throw std::runtime_error("invalid_argument: chunk_size exceeds TMP_BUFF_SIZE");
@@ -166,6 +135,7 @@ void recv_file(const int &fd, const std::string &filepath, const std::string &us
     namespace fs = std::filesystem;
     std::string err = "";
     std::ofstream outfile;
+    (void)offset; // unused for now; offsets are handled by caller through resume semantics
 
     // open file for writing
     if (!resume && fs::exists(filepath) && fs::is_regular_file(filepath)) {
@@ -192,7 +162,6 @@ void recv_file(const int &fd, const std::string &filepath, const std::string &us
 
     // receive file length
     size_t length = receive_length_prefix(fd);
-    size_t chunks = length / TMP_BUFF_SIZE + ((length % TMP_BUFF_SIZE) ? 1 : 0);
 
     // receive file data
     size_t remaining = length;
@@ -242,18 +211,18 @@ void send_file(const int &fd, const std::string &filepath, const size_t &offset)
 
     // send file data
     char temp[TMP_BUFF_SIZE];
-    ssize_t total_sent = offset;
-    ssize_t remaining = std::filesystem::file_size(filepath) - offset;
+    size_t total_sent = offset;
+    size_t remaining = static_cast<size_t>(std::filesystem::file_size(filepath) - offset);
     while (remaining > 0) {
         infile.read(temp, sizeof(temp));
         std::streamsize read_bytes = infile.gcount();
         if (read_bytes <= 0) break;
 
-        ssize_t sent_total = 0;
+        size_t sent_total = 0;
 
-        while (sent_total < read_bytes) {
+        while (sent_total < static_cast<size_t>(read_bytes)) {
             ssize_t sent = ::send(fd, temp + sent_total,
-                                read_bytes - sent_total, 0);
+                                static_cast<size_t>(read_bytes) - sent_total, 0);
 
             if (sent < 0) {
                 if (errno == EINTR) continue;
@@ -263,7 +232,7 @@ void send_file(const int &fd, const std::string &filepath, const size_t &offset)
                 throw std::runtime_error("connection_closed");
             }
 
-            sent_total += sent;
+            sent_total += static_cast<size_t>(sent);
         }
 
         total_sent += sent_total;
