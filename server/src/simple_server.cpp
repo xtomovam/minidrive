@@ -69,8 +69,8 @@ void start_simple_server(const std::uint16_t &port, const std::string &root) {
     }
 
     // if no public directory, create it
-    if (!std::filesystem::exists("public")) {
-        std::filesystem::create_directory("public");
+    if (!std::filesystem::exists(root + "/public")) {
+        std::filesystem::create_directory(root + "/public");
     }
 
     // create listen socket
